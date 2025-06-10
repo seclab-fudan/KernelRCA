@@ -43,11 +43,11 @@ class KernelImage:
         try:
             ins = block.capstone.insns[0]
         except Exception as e:
-            # 走到这里出现反汇编错误
-            # 要么是kernel已经dead，走到了尽头
-            # 要么是vmlinux没有正确patch，runtime的kernel text要用gdb另抓
-            # 还有一种可能，碰上了s2e的特殊指令
-            # 简单起见，反汇编失败的直接认为下一条指令一定连续
+            # Disassembly error occurred here
+            # Either the kernel is already dead and has reached the end
+            # Or vmlinux was not correctly patched, and the runtime kernel text needs to be captured again with gdb
+            # Another possibility is encountering a special S2E instruction
+            # For simplicity, if disassembly fails, just assume the next instruction is always continuous
             logging.warn(f'Invalid instruction at {hex(addr)}')
             return None
         return ins
@@ -65,20 +65,20 @@ class KernelImage:
         current_pc = state['IP']
         ins = self.get_ins_by_addr(current_pc)
 
-        # 遇到了无法解析的指令，直接假设它的下一条一定连续，不会折叠，也不会中断
+        # If an unrecognized instruction is encountered, simply assume the next instruction is always continuous, no folding or interruption
         if ins is None:
             return None
 
         target_pcs = []
-        # 一般来说，下一条指令的位置是当前PC加上当前指令长度
+        # Normally, the next instruction is at the current PC plus the instruction length
         regular_next_pc = current_pc + ins.size
         target_pcs.append(regular_next_pc)
 
-        # REP系列指令的下一条可以是自己
+        # For REP instructions, the next instruction can be itself
         if ins.mnemonic.startswith('rep'):
             target_pcs.append(current_pc)
 
-        # 对跳转指令，尽量计算其目标地址
+        # For jump instructions, try to compute the target address
         if ins.group(x86.X86_GRP_JUMP):
             assert len(ins.operands) == 1
             opr = ins.operands[0]
@@ -89,8 +89,8 @@ class KernelImage:
             elif opr.type == x86.X86_OP_MEM:
                 raise NotImplementedError
                 target_pcs = None
-                # 理论上，这里应该先计算访存地址，再读取内存，以拿到操作数
-                # 简单起见，这里直接忽略，否则这个步骤需要去还原内存值，过于heavy
+                # In theory, the memory address should be calculated first, then memory should be read to get the operand
+                # For simplicity, this is ignored here, otherwise it would require restoring memory values, which is too heavy
                 # pseudo code:
                 #   access_addr = self._read_reg(ins, state, opr.mem.segment) + read_reg(ins, state, opr.mem.base) + read_reg(ins, state, opr.mem.index) * opr.mem.scale + opr.mem.disp
                 #   call_target_pc = self._read_mem(ins, state, access_addr)
@@ -98,7 +98,7 @@ class KernelImage:
             if target_pcs:
                 target_pcs.append(jump_target_pc)
 
-        # 对call指令，尽量计算其目标地址
+        # For call instructions, try to compute the target address
         elif ins.group(x86.X86_GRP_CALL):
             assert len(ins.operands) == 1
             opr = ins.operands[0]
@@ -109,7 +109,7 @@ class KernelImage:
             elif opr.type == x86.X86_OP_MEM:
                 raise NotImplementedError
                 target_pcs = None
-                # 同上
+                # Same as above
 
             if target_pcs:
                 target_pcs.append(call_target_pc)
@@ -117,12 +117,12 @@ class KernelImage:
                 logging.warn(f'call {hex(current_pc)} push {hex(current_pc+ins.size)}')
                 stack.append(current_pc + ins.size)
 
-        # 对ret指令，应当检查stack以判断下一条指令位置
-        # 简单起见，设置为any，任何下一条地址都合法
-        # 会漏掉ret后的中断，但问题不大
-        # 2022.09.09: 更新stack记录功能，现在ret可以准确判断下一条地址
+        # For ret instructions, the stack should be checked to determine the next instruction address
+        # For simplicity, set to any, meaning any next address is valid
+        # Interrupts after ret may be missed, but it's not a big problem
+        # 2022.09.09: Updated stack recording, now ret can accurately determine the next address
         elif ins.group(x86.X86_GRP_RET) or ins.group(x86.X86_GRP_IRET):
-            # 特殊处理syscall最后一条返回指令，返回空代表不应有下一条指令了
+            # Special handling for the last return instruction of syscall, returning empty means there should be no next instruction
             if ins.id == x86.X86_INS_SYSRET:
                 target_pcs = []
             elif stack is not None:

@@ -4,6 +4,12 @@ import json
 import requests
 import subprocess
 
+PROJ_DIR = '/home/gkz/kotori2/s2e/projects'
+crash_id = 'crash_b66d8de2cec1e3878a0524807b93d96bba182fba'
+
+vmlinux_path = os.path.join(PROJ_DIR, crash_id, 'vmlinux_patched')
+rca_report_path = os.path.join(PROJ_DIR, crash_id, 'report.txt')
+
 def check_append(list_object, element):
     if element not in list_object:
         list_object.append(element)
@@ -517,6 +523,20 @@ class RCAReport:
     
     def RequestCode(self, url):
         lines = []
+        '''
+        headers = {
+    	    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/124.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://git.kernel.org/',
+            'Connection': 'keep-alive',
+            'DNT': '1',
+            'Upgrade-Insecure-Requests': '1',
+		}
+        '''
         if url in self.url_cache:
             lines = self.url_cache[url]
         else:
@@ -524,6 +544,7 @@ class RCAReport:
             while cnt > 0:
                 cnt -= 1
                 r = requests.get(url)
+                # r = requests.get(url, headers=headers)
                 if r.status_code != 200:
                     continue 
                 lines = r.text.splitlines()
@@ -534,7 +555,7 @@ class RCAReport:
         return lines 
     
     def ProcessSourceLine(self, call_dict):
-        vmlinux_path = os.path.join('/home/gkz/kotori2/s2e/projects', crash_id, 'vmlinux_patched')
+        global vmlinux_path
         
         url_pattern = 'https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/plain/{{}}?id={}'.format(self.readCommit())
         gui_url_pattern = 'https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/{{}}?id={}#n{{}}'.format(self.readCommit())
@@ -609,10 +630,8 @@ class RCAReport:
                 call_dict[call_idx]['source_line'] = addr2lines[addr]
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python3 tools/visualizer.py <rca_report_path>")
-        sys.exit(1)
-    rca_report_path = sys.argv[1]
+    global rca_report_path
+    global crash_id
     report = RCAReport(rca_report_path)
     with open(crash_id + "_report.json", 'w') as f:
         f.write(json.dumps(report.jsondict(), indent=4))

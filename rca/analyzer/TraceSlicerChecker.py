@@ -14,10 +14,10 @@ class Kallsyms:
         self.name_to_addr = {}
         self.addr_to_name = {}
 
-        # 一些情况下，内核中会存在重复的函数，此时，symbol name会重复，指向多个不同的地址
-        # 为了在trace切分时准确识别这些需要被折叠的函数，需要记录这个函数存在的所有位置
-        # TODO 查明根因，这里很可能是编译过程中的错误。理论上不应该出现才对
-        # 目前先用工程trick拯救一下
+        # In some cases, there may be duplicate functions in the kernel, resulting in duplicate symbol names pointing to different addresses
+        # To accurately identify these functions that need to be folded during trace slicing, all locations of the function need to be recorded
+        # TODO: Find out the root cause, this is likely a compilation error. In theory, this should not happen
+        # For now, use an engineering trick to handle it
         self.name_to_addrs = {}
 
         syms = []
@@ -82,11 +82,11 @@ class KernelImage:
         try:
             ins = block.capstone.insns[0]
         except Exception as e:
-            # 走到这里出现反汇编错误
-            # 要么是kernel已经dead，走到了尽头
-            # 要么是vmlinux没有正确patch，runtime的kernel text要用gdb另抓
-            # 还有一种可能，碰上了s2e的特殊指令
-            # 简单起见，反汇编失败的直接认为下一条指令一定连续
+            # Disassembly error occurred here
+            # Either the kernel is already dead and has reached the end
+            # Or vmlinux was not correctly patched, and the runtime kernel text needs to be captured again with gdb
+            # Another possibility is encountering a special S2E instruction
+            # For simplicity, if disassembly fails, just assume the next instruction is always continuous
             if self.logger:
                 self.logger.warn(f'Invalid instruction at {hex(addr)}')
             import pdb 
@@ -181,19 +181,19 @@ def getNextPcFast(vmlinux:KernelImage, ins, kallsyms:Kallsyms, ex_table:dict):
         next_pc = call_target_pc
     elif ins.group(X86_GRP_JUMP):
         call_target_pc = resolveCallFast(ins)
-        # fold out 的next_pc 是目前function的call instruction的下一条，因为fold out是用的stack_ret 来判断的
+        # The next_pc of fold out is the next instruction after the current function's call instruction, because fold out is determined by stack_ret
         if shouldSkip(call_target_pc, kallsyms):
             return []
         next_pc = call_target_pc
     elif ins.group(X86_GRP_RET) or ins.group(X86_GRP_IRET):
         return []
-    # page fault hanlder里面可能并不会返回当前指令
+    # The page fault handler may not return the current instruction
     elif ins.address in ex_table:
         return [ex_table[ins.address], ins.address]
     else:
         next_pc = ins.size + ins.address
         next_ins = vmlinux.get_ins_by_addr(next_pc)
-        # 这里可能会碰到call 一个asan的函数，理论上fold函数应该会被折叠成一个entry，所以在这里应该也处理
+        # Here you may encounter a call to an asan function. In theory, the fold function should be folded into one entry, so it should also be handled here
         if next_ins.group(X86_GRP_CALL):
             call_target_pc = resolveCallFast(next_ins)
             if shouldSkip(call_target_pc, kallsyms):
@@ -203,7 +203,7 @@ def getNextPcFast(vmlinux:KernelImage, ins, kallsyms:Kallsyms, ex_table:dict):
             if shouldSkip(call_target_pc, kallsyms):
                 return []
     result.append(next_pc)
-    # 可能触发pagefault，触发pagefault之后下一条指令还是当前指令
+    # May trigger a page fault, and after the page fault, the next instruction is still the current instruction
     if isMemAccessIns(ins):
         result.append(ins.address) 
     return result
@@ -214,7 +214,7 @@ def prepareSyscall(vmlinux:KernelImage, kallsyms:Kallsyms):
     exit_address = 0
     
     def is_sysret(ins):
-        return ins.id == X86_INS_SYSRET
+        return ins.id == X86_INS_SYSRET or ins.id == X86_INS_SYSRETQ
 
     ins = find_ins_in_function(symbol.rebased_addr, symbol.size, vmlinux, is_sysret)
     exit_address = ins.address
@@ -331,7 +331,7 @@ def check(project_dir):
                 break 
             index += 1
             
-        # # 这个segment里面并没有指令
+        # # There is no instruction in this segment
         # if first_ins == None and last_ins == None:
         #     continue 
             
@@ -339,7 +339,7 @@ def check(project_dir):
             if EventID in EvtRecord:
                 ins = vmlinux.get_ins_by_addr(EvtRecord[EventID])
                 next_possible_pc = getNextPcFast(vmlinux, ins, kallsyms, ex_table)
-                # 如果 next_possible_pc == []则为call / jump解析不出来，这时候我们默认切片没有问题
+                # If next_possible_pc == [], it means call/jump cannot be parsed, in this case we assume the slicing is correct
                 if next_possible_pc and first_ins.pc not in next_possible_pc:
                     import pdb 
                     pdb.set_trace()
@@ -373,7 +373,7 @@ def check(project_dir):
             else:
                 ins = vmlinux.get_ins_by_addr(EvtRecord[EventID])
                 next_possible_pc = getNextPcFast(vmlinux, ins, kallsyms, ex_table)
-                # 如果 next_possible_pc == []则为call / jump解析不出来，这时候我们默认切片没有问题
+                # If next_possible_pc == [], it means call/jump cannot be parsed, in this case we assume the slicing is correct
                 if next_possible_pc and first_ins.pc not in next_possible_pc:
                     raise AttributeError("Inconsistent soft_irq slice, seg_id: {}".format(fname))
 
@@ -401,7 +401,7 @@ def check(project_dir):
             else:
                 ins = vmlinux.get_ins_by_addr(EvtRecord[EventID])
                 next_possible_pc = getNextPcFast(vmlinux, ins, kallsyms, ex_table)
-                # 如果 next_possible_pc == []则为call / jump解析不出来，这时候我们默认切片没有问题
+                # If next_possible_pc == [], it means call/jump cannot be parsed, in this case we assume the slicing is correct
                 if next_possible_pc and first_ins.pc not in next_possible_pc:
                     import pdb 
                     pdb.set_trace()

@@ -461,11 +461,11 @@ public:
 			std::string s;
 			std::stringstream ss;
 			ss << "[.] (" << ins_node->index << ") ";
-			/* 这地方很抽象，有的指令会没有outputs，比如
+			/* This part is quite confusing. Some instructions may have no outputs, for example:
 			0xffffffff813f14f9 <xas_clear_mark+57>:      btr    QWORD PTR [rsi],rdx
 			0xffffffff813f14fd <xas_clear_mark+61>:      jb     0xffffffff813f14e2 <xas_clear_mark+34>
 			0xffffffff813f14ff <xas_clear_mark+63>:      ret
-			而且还可能没有inputs，比如syscall			
+			There may also be no inputs, such as for syscall			
 			*/
 			uint64_t ip = ins_node->inputs.empty() ? ins_node->outputs[0]->pc : ins_node->inputs[0]->pc;
 			if (ip != 0) {

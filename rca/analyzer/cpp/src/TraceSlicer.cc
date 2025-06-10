@@ -179,10 +179,10 @@ public:
 	size_t pid;
 	bool has_ins;
 
-	// Page Fault handler可以自己定义在page fault运行结束之后跳转的地址，
-	// 在这里我们先通过search_exception_tables的参数rdi(regs->ip)来判断当前的interrupt的ip是否为interrupt_s，
-	// 并且获得search_exception_tables的return value(exception_table_entry)
-	// 在遇到ex_fixup_addr之后判断rdi是否为之前获得的exception_table_entry，若是，获取ex_fixup_addr的return value，放入interrupt_out里面
+	// Page Fault handler can define the address to jump to after the page fault finishes.
+	// Here, we first use the rdi (regs->ip) parameter of search_exception_tables to determine whether the current interrupt ip is interrupt_s.
+	// And obtain the return value (exception_table_entry) of search_exception_tables.
+	// After encountering ex_fixup_addr, check whether rdi is the previously obtained exception_table_entry. If so, get the return value of ex_fixup_addr and put it into interrupt_out.
 	uint64_t exception_table_entry;
 	uint64_t search_exception_tables_out;
 
@@ -407,15 +407,12 @@ void define_fold_functions(Kallsyms& kallsyms)
 	fold_func("native_load_gs_index");
 	fold_func("xfrm_hash_alloc");
 
-	// 在这里有对Dirty VEX IR的使用，但是我们实现的Dirty IR过于简单，在TaintEngine的时候
-	// 会发生InconsistencyException，在这里直接将其fold
+	// Here we use Dirty VEX IR, but our implementation of Dirty IR is too simple. In TaintEngine, an InconsistencyException may occur, so we directly fold it here.
 	fold_func("switch_fpu_return");
 	fold_func("kvm_save_current_fpu");
 	fold_func("kvm_load_guest_fpu");
 	
-	// 我们在这里遇到了asan函数(kasan_enable_current)的尾调用，尾调用会被优化为jmp，
-	// 但是在traceslicer中对于asan的处理只考虑了call指令，没有考虑jmp asan_func，
-	// 这导致在处理jmp kasan_enable_current时误处理为interrupt，导致多余的指令被fold
+	// Here we encounter a tail call to an asan function (kasan_enable_current), which is optimized to jmp. However, TraceSlicer only considers call instructions for asan, not jmp asan_func. This leads to misprocessing jmp kasan_enable_current as an interrupt, causing extra instructions to be folded.
 	fold_func("print_section");
 	fold_func("kernel_init_free_pages");
 }
@@ -519,11 +516,7 @@ void parse_and_split_trace(S2EPbTraceLoader& s2e_trace_loader, Kallsyms& kallsym
 
 						context->interrupt_s = context->ip;
 						context->in_interrupt = true;
-						// auto resolved_last_ip = vmlinux.relove_target_pc_fast(context->last_ip, record->ins());
-						// // 我在这里遇到了特殊情况，jmp 0 / call 0在这里last_ip应该被设置为0，而不是call/jmp的这条指令
-						// if (resolved_last_ip.has_value())
-						// 	context->interrupt_last_ip = resolved_last_ip.value();
-						// else 
+						// Here I encountered a special case: for jmp 0 / call 0, last_ip should be set to 0, not the call/jmp instruction itself.
 						context->interrupt_last_ip = context->last_ip;
 						
 						context->interrupt_out.push_back(context->last_ip);
@@ -541,7 +534,7 @@ void parse_and_split_trace(S2EPbTraceLoader& s2e_trace_loader, Kallsyms& kallsym
 				if (context->ip == 0xffffffff812e8000)
 					volatile int debug = 1;
 
-				// 我遇到了exit interrupt 之后立马碰到__schedule的情况，此时possible_next为空
+				// I encountered a situation where after exit interrupt, __schedule is immediately encountered, and possible_next is empty at this time.
 				if (!context->in_interrupt && !context->in_fold && std::find(fold_addrs.begin(), fold_addrs.end(), context->ip) != fold_addrs.end())
 				{
 					logger->debug("{} Start fold at num: {} 0x{:x}, last_ip = 0x{:x}, ins_cnt = {}, fold_cnt = {}, intr_cnt = {}, fold_out = {}", context->output_name(0), record->ins().num(), context->ip, context->last_ip, context->ins_cnt, context->fold_cnt, context->interrupt_cnt, context->ret_stack.back());
@@ -586,11 +579,7 @@ void parse_and_split_trace(S2EPbTraceLoader& s2e_trace_loader, Kallsyms& kallsym
 					if (!context->in_interrupt) {
 						context->interrupt_s = context->ip;
 						context->in_interrupt = true;
-						// auto resolved_last_ip = vmlinux.relove_target_pc_fast(context->last_ip, record->ins());
-						// // 我在这里遇到了特殊情况，jmp 0 / call 0在这里last_ip应该被设置为0，而不是call/jmp的这条指令
-						// if (resolved_last_ip.has_value())
-						// 	context->interrupt_last_ip = resolved_last_ip.value();
-						// else 
+						// Here I encountered a special case: for jmp 0 / call 0, last_ip should be set to 0, not the call/jmp instruction itself.
 						context->interrupt_last_ip = context->last_ip;
 						logger->debug("{} Start interrupt at 0x{:x} num {}, do not have any interrupt_out", context->output_name(0), context->ip, record->ins().num());
 					}

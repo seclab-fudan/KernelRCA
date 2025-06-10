@@ -133,7 +133,7 @@ public:
     IRTranslator(const std::string& filename) ;
     ~IRTranslator() { 
         cs_close(&disassmbler); 
-        // 理论上来说每一条instruction,IR都应该被free，但是我们要全局的cache，所以先不free
+        // In theory, the IR of each instruction should be freed, but since we need a global cache, we do not free it for now
     }
 
     DisassembleResult get_ins_by_addr(const uint64_t& ins_addr);

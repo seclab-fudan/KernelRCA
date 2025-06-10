@@ -24,11 +24,12 @@ git-submodule-update:
 
 .PHONY: git-submodule-update
 
-git_module_status := $(shell \
-  cd '$(SRC_PATH)' && \
-  GIT="$(GIT)" ./scripts/git-submodule.sh status $(GIT_SUBMODULES); \
-  echo $$?; \
-)
+# git_module_status := $(shell \
+#   cd '$(SRC_PATH)' && \
+#   GIT="$(GIT)" ./scripts/git-submodule.sh status $(GIT_SUBMODULES); \
+#   echo $$?; \
+# )
+git_module_status = 0
 
 ifeq (1,$(git_module_status))
 ifeq (no,$(GIT_UPDATE))

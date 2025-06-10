@@ -44,6 +44,8 @@ if __name__ == '__main__':
 
     # make kernel config again to include previous modification and introduce CONFIG_S2E
     os.system("cd " + KERNEL_DIR + ' && make CC=gcc-11 olddefconfig')
+    # remove conf to avoid the inconsistency version of glibc inside and outside docker image
+    os.system("cd " + KERNEL_DIR + ' && rm -f scripts/kconfig/conf')
 
     # prepare config file for s2e image
     os.system("mv " + os.path.join(KERNEL_DIR, '.config') + ' ' + os.path.join(KERNEL_DIR, 'config-x86_64'))

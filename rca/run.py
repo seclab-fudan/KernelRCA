@@ -421,7 +421,7 @@ def manipulate_analyze_config(project_dir, crash_id):
     # a simple check to confirm whether the sliced traces are correct
     suspicious_pc, suspicious_addr, crash_type = parse_blame_info(project_dir)
     
-    # 在page_fault之后会被调度走，会产生额外的trace，需要把这些trace切除
+    # After a page fault, the process may be scheduled out, resulting in extra traces. These extra traces need to be trimmed.
     end_seg_id = trim_slice_result(project_dir, suspicious_pc, suspicious_addr, crash_type, seg_list)
     print("[+] Trim slice result: from {} to {}".format(len(seg_list), end_seg_id + 1))
     seg_list = seg_list[:end_seg_id + 1]
@@ -483,6 +483,15 @@ if __name__ == '__main__':
     print (f'[+] starting {crash_id}')
     sys.stdout.flush()
     
+    analyzer_build_path = os.path.join(os.path.dirname(__file__), 'analyzer', 'cpp', 'build')
+    if not os.path.exists(analyzer_build_path):
+        print(f'[+] analyzer is not built in {analyzer_build_path}')
+        os.makedirs(analyzer_build_path)
+    cwd = os.getcwd()
+    os.chdir(analyzer_build_path)
+    execute('cmake ..')
+    os.chdir(cwd)
+
     build_cmd = f"make -C {os.path.join(os.path.dirname(__file__), 'analyzer', 'cpp', 'build')} -j{cpu_count() // 2}"
     execute(build_cmd)
     

@@ -311,9 +311,9 @@ static void get_memberdie_by_typedie_and_offset(Dwarf_Debug dbg, Dwarf_Off struc
 
 		if (tag != DW_TAG_member) {
 			/* 
-			 * 按理来说，struct的child都是member
-			 * 不会出现非member的情况
-			 * 一旦出现直接报错
+			 * Normally, the children of a struct should all be members.
+			 * There should not be any non-member children.
+			 * If such a case occurs, report an error immediately.
 			 * */
 			warnx("Error child of struct is not member\n");
 			exit(1);
@@ -643,13 +643,13 @@ static void scan_die(Dwarf_Debug dbg, Dwarf_Die die)
 	int i = 0;
 
 	/*
-	 * 首先检查是不是DW_TAG_variable或DW_TAG_formal_parameter
-	 * 然后检查是否有DW_AT_location
-	 * 两点都满足后
-	 * 沿着DW_AT_specification或者DW_AT_abstract_origin回溯
-	 * 直到遇到一个die，具有DW_AT_type为止
-	 * 只有记录了DW_AT_type的才是可以分析出数据类型的die
-	 * 否则这些variable和formal_parameter节点都只是中间节点
+	 * First, check if it is a DW_TAG_variable or DW_TAG_formal_parameter.
+	 * Then check if it has DW_AT_location.
+	 * If both conditions are met,
+	 * trace back along DW_AT_specification or DW_AT_abstract_origin,
+	 * until a die with DW_AT_type is found.
+	 * Only dies with DW_AT_type can be used to analyze the data type.
+	 * Otherwise, these variable and formal_parameter nodes are just intermediate nodes.
 	 */
 
 	ret = dwarf_tag(die, &tag, &error);
@@ -702,11 +702,11 @@ static void scan_die(Dwarf_Debug dbg, Dwarf_Die die)
 	}
 
 	/*
-	 * 得到die的offset，记入全局数据结构，可以按需分析
-	 * 从die中可以得到type_die，一直回溯可以得到struct_die，进而计算出member
-	 * 对局部变量，全局数据结构存 map[op][hipc] = {lowpc, die_offset}
-	 * 一直迭代type_die即可找出最终的struct_die
-	 * 对全局变量，全局数据结构存 map[op][addr] = {die_offset}
+	 * Get the offset of the die and record it in the global data structure for analysis as needed.
+	 * From the die, you can get type_die, and by tracing back, you can get struct_die, and then determine the member.
+	 * For local variables, the global data structure stores map[op][hipc] = {lowpc, die_offset}.
+	 * Iterating type_die will eventually find the final struct_die.
+	 * For global variables, the global data structure stores map[op][addr] = {die_offset}.
 	 */
 	ret = dwarf_dieoffset(def_die, &die_offset, &error);
 	if (ret == DW_DLV_ERROR) {
@@ -715,16 +715,19 @@ static void scan_die(Dwarf_Debug dbg, Dwarf_Die die)
 	}
 
 	/* 
-	 * 这里需要区分两种情况
-	 * 一种是单个expression，从这里可以找到全局变量
-	 * 一种是loclist，用于定位有生命周期的变量的生命周期范围
+	 * Here, two cases need to be distinguished:
+	 * One is a single expression, which can be used to find global variables.
+	 * The other is a loclist, used to locate the lifetime range of variables with lifetimes.
+	 * ...
+	 * Here, only the case where the single expression is an address is considered.
+	 * In fact, the expression can also represent an offset relative to fbreg, the register where the parameter is located (rsi, rdi), etc.
+	 * These are not considered for now, only global variables are considered.
+	 * In the case of a single expression, locentry_count is always 1.
 	 */
 	if (lkind == DW_LKIND_expression) {
 		/* 
-		 * 这里只考虑单个expression是addr的情况
-		 * 其实这里的expression还可以代表相对fbreg的偏移，参数所在寄存器(rsi, rdi)等
-		 * 暂时先不考虑了，只考虑全局变量
-		 * 单个expression的情况下，locentry_count永远等于1
+		 * First, find the die in the loclist that contains the ip and matches the op; this is the local variable or parameter.
+		 * Then, find the root type die from the variable die and get the type name.
 		 */
 		for (i = 0; i < locentry_count; i ++) {
 			ret = dwarf_get_locdesc_entry_d(loclist_head, i,
@@ -938,14 +941,14 @@ void retrive_by_ip_reg(Dwarf_Addr ip, Dwarf_Small op /* reg */, char **type_name
 	Dwarf_Off die_off;
 	Dwarf_Off type_die_off;
 
-	/* 首先，查找loclist包含ip的，op能对上的die，这个就是局部变量或参数 */
+	/* First, find the die in the loclist that contains the ip and matches the op; this is the local variable or parameter. */
 	get_die_off_by_op_ip(op, ip, &die_off);
 	if (die_off == 0) {
 		*type_name = NULL;
 		return;
 	}
 
-	/* 之后，从变量die找到其根类型die，并得到type名 */
+	/* Then, find the root type die from the variable die and get the type name. */
 	get_typedie_and_name_by_dieoff(dbg, die_off, &type_die_off, type_name);
 }
 
@@ -955,22 +958,22 @@ void retrive_by_ip_reg_disp(Dwarf_Addr ip, Dwarf_Small op /* reg */, Dwarf_Unsig
 	Dwarf_Off type_die_off;
 	Dwarf_Off member_die_off;
 
-	/* 首先，查找loclist包含ip的，op能对上的die，这个就是局部变量或参数 */
+	/* First, find the die in the loclist that contains the ip and matches the op; this is the local variable or parameter. */
 	get_die_off_by_op_ip(op, ip, &die_off);
 	if (die_off == 0) {
 		*type_name = NULL;
 		return;
 	}
-	/* 之后，从变量die找到其类型die，并得到type名 */
+	/* Then, find the type die from the variable die and get the type name. */
 	get_typedie_and_name_by_dieoff(dbg, die_off, &type_die_off, type_name);
 	free(*type_name); /* base type is not needed */
-	/* 之后，从其根类型die找到offset=disp的member die，即可知道变量是struct中的何种member */
+	/* Then, from its root type die, find the member die with offset=disp, so you can know which member of the struct the variable is. */
 	get_memberdie_by_typedie_and_offset(dbg, type_die_off, disp, &member_die_off);
 	if (member_die_off == 0) {
 		*type_name = NULL;
 		return;
 	}
-	/* 最后，从member die找到其根类型die，并得到type名 */
+	/* Finally, find the root type die from the member die and get the type name. */
 	get_typedie_and_name_by_dieoff(dbg, member_die_off, &type_die_off, type_name);
 }
 
@@ -980,16 +983,16 @@ void retrive_by_addr(Dwarf_Unsigned addr, char **type_name, char **member_name)
 	Dwarf_Off die_off;
 	Dwarf_Off type_die_off;
 
-	// 首先，查找location==addr的die，这个就是全局变量
+	// First, find the die whose location==addr; this is the global variable.
 	get_die_off_by_addr(addr, &die_off);
 	if (die_off == 0) {
 		*type_name = NULL;
 		*member_name = NULL;
 		return;
 	}
-	// 之后，从变量die找到其根类型die，并得到type名
+	// Then, find the root type die from the variable die and get the type name.
 	get_typedie_and_name_by_dieoff(dbg, die_off, &type_die_off, type_name);
-	// 最后，从其根类型die找到offset=disp的member die，即可知道变量是struct中的何种member
+	// Finally, from its root type die, find the member die with offset=disp, so you can know which member of the struct the variable is.
 	get_membername_by_typedie_and_offset(dbg, type_die_off, 0x0, member_name);
 }
 */

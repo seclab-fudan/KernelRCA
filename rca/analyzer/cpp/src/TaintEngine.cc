@@ -110,7 +110,7 @@ bool Machine::check_state(Trace::Record* record, uint64_t last_ip) {
 
     // auto call_target_pc = vmlinux->get_const_calltarget(last_ip);
     // if (call_target_pc == 0 && kallsyms->addr_to_name.count(last_ip)) 
-    //     // 因为handle_func的时候会把rip指向被fold函数的第一条，所以当call_target_pc是0的时候应该判断last_ip是不是函数的开头，然后判断该函数是否被fold
+    //     // When handle_func is called, rip will point to the first instruction of the folded function. So when call_target_pc is 0, we should check if last_ip is the start of the function, and then check if the function is folded
     //     call_target_pc = last_ip;
 
 
@@ -211,7 +211,7 @@ void Machine::post_mem_check(std::vector<Trace::Record*>& records) {
         if (need_create) {
             value_in_mem = state->memory->read_raw(addr, size, state);
             state->memory->write_raw(addr, value, size);
-            // 在这里我遇到了fxsave的情况，在SimVEX里面并没有处理FP regs，其具体原理在于Dirty的实现有问题，但是我们现在不考虑fp regs，所以直接这样实现
+            // Here I encountered the fxsave instruction. SimVEX does not handle FP regs, mainly due to issues in Dirty implementation. Since we do not consider fp regs for now, we handle it this way directly
             auto ins = this->translator->get_ins_by_addr(record->mem().ip());
             if (std::string(ins->insns[0].mnemonic).find("fxsave") != std::string::npos) {
                 // Do nothing
@@ -225,7 +225,7 @@ void Machine::post_mem_check(std::vector<Trace::Record*>& records) {
         else {
             value_in_mem = state->memory->read_raw(addr, size, state);
             if (value_in_mem != value) {
-                // 在这里我遇到了pushf的情况，在SimVEX里面并没有处理CFLAGS而导致pushf不一致的情况
+                // Here I encountered the pushf instruction. SimVEX does not handle CFLAGS, which leads to inconsistency for pushf. We handle it here.
                 auto ins = this->translator->get_ins_by_addr(record->mem().ip());
                 if (!strncmp((char*)ins->insns[0].bytes, pushf.c_str(), pushf.length())) {
                     // Do nothing
@@ -259,7 +259,7 @@ void Machine::get_mem_access_records(std::vector<Trace::Record*>& read, std::vec
 void Machine::_handle_ins(Trace::Record* record) {
     uint64_t last_ip = this->state->pc; 
     this->state->pc = record->ins().pc();
-    // 在运行这条指令之前先check context是否正确
+    // Before executing this instruction, check if the context is correct
     this->check_state(record, last_ip);
     std::vector<Trace::Record*> read, write;
     this->get_mem_access_records(read, write);
@@ -283,7 +283,7 @@ void Machine::_handle_ins(Trace::Record* record) {
             continue;
         else {
             handle_stmt(this->state, stmt);
-            // 如果在这里Exit的话，后面的ir不应该继续处理
+            // If Exit occurs here, the following IR should not be processed
             if (stmt->tag == Ist_Exit && state->pc != state->getReg(RIP)->value) 
                 break; 
         }
@@ -297,7 +297,7 @@ void Machine::_handle_ins(Trace::Record* record) {
     else if (jumpkind == IRJumpKind::Ijk_Ret) {
         this->state->stacktop = this->state->stacktop->parent;
     }
-    // 因为stmt处理完了之后rip可能不一致
+    // After processing the stmt, rip may be inconsistent
     this->state->pc = state->getReg(RIP)->value;
 }
 
@@ -311,7 +311,7 @@ void Machine::_handle_func(Trace::Record* record) {
 void Machine::_step() {
     auto cur_record = this->_fetch_trace();
     for (; cur_record && !(cur_record->has_func() || cur_record->has_ins()); cur_record = this->_fetch_trace());
-    // 可能是最后的一些数据，这时候要处理一下
+    // This may be the last bit of data, so handle it here
     if (cur_record == NULL) {
         assert(end());
         return; 

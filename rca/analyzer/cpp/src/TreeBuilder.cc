@@ -27,8 +27,6 @@
 #include "sinks/stdout_color_sinks.h"
 #include <utils.h>
 
-// const std::string CONFIG_PATH = "/home/zyf/workspace/rootcause/analyzer/cpp/test/config";
-
 TreeBuilder::TreeBuilder(const path& config_path) {
     simulate_order.clear();
     evtid2simulate_list.clear();
@@ -223,7 +221,7 @@ void TreeBuilder::run() {
         State* cur_state = nullptr;
         cur_unknown_vals.clear();
         std::vector<uint64_t> timestamp_list; 
-        // 因为分析的时候是倒着分析的，但是模拟的时候我们应该从Evt的第一个segment开始执行，所以应该倒着simulate
+        // Since the analysis is performed in reverse, but the simulation should start from the first segment of the event, we should simulate in reverse order.
         for (auto it = simulate_list.rbegin(); it != simulate_list.rend(); ++it) {
             free_sites.clear();
             cur_state = generateStates(*it, cur_state);
@@ -261,7 +259,7 @@ void TreeBuilder::run() {
                         break;
                     }
                 
-                // value 不相同的话我们不应该拼接这个memory，这个memory的source就应该为NULL
+                // If the value is not the same, we should not merge this memory, and the source of this memory should be set to NULL.
                 if (should_skip) {
                     founds.insert(val);
                     continue;

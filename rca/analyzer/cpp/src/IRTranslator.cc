@@ -118,7 +118,7 @@ DisassembleResult IRTranslator::get_ins_by_addr(const uint64_t& ins_addr) {
     
     Instructions result; 
 
-    // 在这里我们只disassemble一条指令
+    // Here we only disassemble one instruction
     auto cnt = cs_disasm(disassmbler, code, 0x20, ins_addr, 1, &result.insns);
     if (cnt <= 0) {
         if (code[0] == 0xf && code[1] == 0x3f) {
@@ -205,7 +205,7 @@ std::vector<IRSB*> IRTranslator::lift_to_vex(std::vector<uint8_t>& bytes, const 
         lifted.push_back(irsb);
         offset += size; 
         start_addr = error_addr + size; 
-        // 丑陋的写法，但是直接抄的Python的切片 这个数组不应该超过100，所以理论上不会有很大的开销
+        // Ugly implementation, but directly copied from Python slicing. This array should not exceed 100 elements, so theoretically there won't be much overhead
         ins_addrs.erase(ins_addrs.cbegin(), ins_addrs.cbegin() + error_idx + 1);
     }
     

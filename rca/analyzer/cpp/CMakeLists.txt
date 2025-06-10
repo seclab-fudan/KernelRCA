@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-set(CMAKE_CXX_COMPILER "/usr/bin/clang++-13")
+set(CMAKE_CXX_COMPILER "/usr/bin/g++-11")
 
 project(Analyzer)
 
@@ -7,13 +7,13 @@ set(CMAKE_CXX_STANDARD 17)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
 
-# capstone支持
+# capstone
 include(FindPkgConfig)
 pkg_check_modules(CAPSTONE REQUIRED capstone)
 # protobuf 支持
 find_package(Protobuf REQUIRED)
 
-# JSON支持
+# JSON
 include(FetchContent)
 FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz)
 FetchContent_MakeAvailable(json)
