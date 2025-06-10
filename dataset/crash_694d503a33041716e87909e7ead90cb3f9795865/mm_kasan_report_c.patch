@@ -1,0 +1,25 @@
+diff --git a/mm/kasan/report.c b/mm/kasan/report.c
+index 621782100eaa..f8d547bec321 100644
+--- a/mm/kasan/report.c
++++ b/mm/kasan/report.c
+@@ -35,4 +35,8 @@
+ #include "kasan.h"
+ #include "../slab.h"
+ 
++#ifdef CONFIG_S2E
++#include <s2e/linux/linux_monitor.h>
++#endif
++
+ /* Shadow layout customization. */
+@@ -510,5 +514,11 @@ void __kasan_report(unsigned long addr, size_t size, bool is_write, unsigned lon
+ 		dump_stack();
+ 	}
+ 
++#ifdef CONFIG_S2E
++	if (s2e_linux_monitor_enabled) {
++		s2e_linux_kotori_memory_bug(1, info.ip, untagged_addr);
++	}
++#endif
++
+ 	end_report(&flags);
+ }

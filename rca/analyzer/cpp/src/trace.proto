@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package Trace;
+
+message Argument {
+	string arg_name = 1;
+	uint64 arg_value = 2; 
+}
+
+message Syscall {
+	uint64 num = 1;
+	uint32 id = 2;
+	string name = 3;
+	repeated Argument args = 4; 
+	uint64 timestamp = 5;
+}
+
+message Mem {
+	uint64 addr = 1;
+	uint64 value = 2;
+	uint64 ip = 3;
+	uint32 size = 4;
+	uint32 pid = 5;
+	bool is_write = 6;
+	uint64 timestamp = 7;
+}
+
+message Ins {
+	uint64 num = 1;
+	uint64 pc = 2;
+	uint64 rax = 3;
+	uint64 rcx = 4;
+	uint64 rdx = 5;
+	uint64 rbx = 6;
+	uint64 rsp = 7;
+	uint64 rbp = 8;
+	uint64 rsi = 9;
+	uint64 rdi = 10;
+	uint64 r8 = 11;
+	uint64 r9 = 12;
+	uint64 r10 = 13;
+	uint64 r11 = 14;
+	uint64 r12 = 15;
+	uint64 r13 = 16;
+	uint64 r14 = 17;
+	uint64 r15 = 18;
+	uint64 cc_op = 19;
+	uint64 cc_dep1 = 20;
+	uint64 cc_dep2 = 21;
+	uint64 cc_ndep = 22;
+	uint64 gs = 23;
+	uint64 r_184 = 24;
+	uint64 r_192 = 25;
+	uint64 r_200 = 26;
+	uint64 pid = 27;
+	uint64 timestamp = 28;
+}
+
+enum EventType {
+	EVENT_INVALID = 0;
+	EVENT_THREAD_CREATE = 1;
+	EVENT_THREAD_OUT = 2;
+	EVENT_THREAD_IN = 3;
+	EVENT_THREAD_EXIT = 4;
+	EVENT_SOFTIRQ_CREATE = 5;
+	EVENT_SOFTIRQ_OUT = 6;
+	EVENT_SOFTIRQ_IN = 7;
+	EVENT_WORK_CREATE = 8;
+	EVENT_WORK_OUT = 9;
+	EVENT_WORK_IN = 10;
+}
+
+enum DataType {
+	OBJECT_SIZE = 0;
+	OBJECT_PTR = 1;
+}
+
+message Data {
+	uint64 data_value = 1;
+	DataType data_type = 2;
+}
+
+message Event {
+	EventType type = 1;
+	uint32 pid = 2;
+	uint64 target = 3;
+	uint64 timestamp = 4;
+}
+
+message Func {
+    string name = 1; 
+    uint64 ret = 2; 
+	repeated Data data = 3;
+	uint64 timestamp = 4;
+	uint64 retip = 5;
+}
+
+message Record {
+	oneof item {
+		Ins ins = 1;
+		Syscall syscall = 2;
+		Event event = 3;
+        Func func = 4;
+        Mem mem = 5;
+	}
+}
+
+enum DropReason {
+	KASAN = 0;
+}
+
+message HiddenRecord {
+	Record record = 1;
+	uint64 seg_id = 2;
+	DropReason reason = 3; 
+}
+
+
+message Trace {
+	repeated Record record = 1;
+}
+
+message HiddenTrace {
+	repeated HiddenRecord record = 1;
+}
+

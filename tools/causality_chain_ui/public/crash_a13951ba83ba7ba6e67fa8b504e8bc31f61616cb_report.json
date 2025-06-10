@@ -1,0 +1,1437 @@
+{
+    "report": "https://syzkaller.appspot.com/bug?id=a13951ba83ba7ba6e67fa8b504e8bc31f61616cb",
+    "title": "KASAN: use-after-free Read in path_init (2)",
+    "call": {
+        "31981": {
+            "name": "+0x32",
+            "parent_idx": 31978,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n2207",
+                    "code": [
+                        "/* must be paired with terminate_walk() */",
+                        "static const char *path_init(struct nameidata *nd, unsigned flags)",
+                        "{",
+                        "\tint error;",
+                        "\tconst char *s = nd->name->name;",
+                        "",
+                        "\tif (!*s)",
+                        "\t\tflags &= ~LOOKUP_RCU;",
+                        "\tif (flags & LOOKUP_RCU)",
+                        "\t\trcu_read_lock();",
+                        "",
+                        "\tnd->flags = flags | LOOKUP_JUMPED;",
+                        "\tnd->depth = 0;",
+                        "",
+                        "\tnd->m_seq = __read_seqcount_begin(&mount_lock.seqcount);",
+                        "\tnd->r_seq = __read_seqcount_begin(&rename_lock.seqcount);",
+                        "\tsmp_rmb();",
+                        "",
+                        "\tif (flags & LOOKUP_ROOT) {",
+                        "\t\tstruct dentry *root = nd->root.dentry;",
+                        "\t\tstruct inode *inode = root->d_inode;",
+                        "\t\tif (*s && unlikely(!d_can_lookup(root)))",
+                        "\t\t\treturn ERR_PTR(-ENOTDIR);",
+                        "\t\tnd->path = nd->root;",
+                        "\t\tnd->inode = inode;",
+                        "\t\tif (flags & LOOKUP_RCU) {",
+                        "\t\t\tnd->seq = read_seqcount_begin(&nd->path.dentry->d_seq);",
+                        "\t\t\tnd->root_seq = nd->seq;",
+                        "\t\t} else {",
+                        "\t\t\tpath_get(&nd->path);",
+                        "\t\t}",
+                        "\t\treturn s;",
+                        "\t}",
+                        "",
+                        "\tnd->root.mnt = NULL;",
+                        "\tnd->path.mnt = NULL;",
+                        "\tnd->path.dentry = NULL;",
+                        "",
+                        "\t/* Absolute pathname -- fetch the root (LOOKUP_IN_ROOT uses nd->dfd). */",
+                        "\tif (*s == '/' && !(flags & LOOKUP_IN_ROOT)) {",
+                        "\t\terror = nd_jump_root(nd);",
+                        "\t\tif (unlikely(error))",
+                        "\t\t\treturn ERR_PTR(error);",
+                        "\t\treturn s;",
+                        "\t}",
+                        "",
+                        "\t/* Relative pathname -- get the starting-point it is relative to. */",
+                        "\tif (nd->dfd == AT_FDCWD) {",
+                        "\t\tif (flags & LOOKUP_RCU) {",
+                        "\t\t\tstruct fs_struct *fs = current->fs;",
+                        "\t\t\tunsigned seq;",
+                        "",
+                        "\t\t\tdo {",
+                        "\t\t\t\tseq = read_seqcount_begin(&fs->seq);",
+                        "\t\t\t\tnd->path = fs->pwd;",
+                        "\t\t\t\tnd->inode = nd->path.dentry->d_inode;",
+                        "\t\t\t\tnd->seq = __read_seqcount_begin(&nd->path.dentry->d_seq);",
+                        "\t\t\t} while (read_seqcount_retry(&fs->seq, seq));",
+                        "\t\t} else {",
+                        "\t\t\tget_fs_pwd(current->fs, &nd->path);",
+                        "\t\t\tnd->inode = nd->path.dentry->d_inode;",
+                        "\t\t}",
+                        "\t} else {",
+                        "\t\t/* Caller must check execute permissions on the starting path component */",
+                        "\t\tstruct fd f = fdget_raw(nd->dfd);",
+                        "\t\tstruct dentry *dentry;",
+                        "",
+                        "\t\tif (!f.file)",
+                        "\t\t\treturn ERR_PTR(-EBADF);",
+                        "",
+                        "\t\tdentry = f.file->f_path.dentry;",
+                        "",
+                        "\t\tif (*s && unlikely(!d_can_lookup(dentry))) {",
+                        "\t\t\tfdput(f);",
+                        "\t\t\treturn ERR_PTR(-ENOTDIR);",
+                        "\t\t}",
+                        "",
+                        "\t\tnd->path = f.file->f_path;",
+                        "\t\tif (flags & LOOKUP_RCU) {",
+                        "\t\t\tnd->inode = nd->path.dentry->d_inode;",
+                        "\t\t\tnd->seq = read_seqcount_begin(&nd->path.dentry->d_seq);",
+                        "\t\t} else {",
+                        "\t\t\tpath_get(&nd->path);",
+                        "\t\t\tnd->inode = nd->path.dentry->d_inode;",
+                        "\t\t}",
+                        "\t\tfdput(f);",
+                        "\t}",
+                        "",
+                        "\t/* For scoped-lookups we need to set the root to the dirfd as well. */",
+                        "\tif (flags & LOOKUP_IS_SCOPED) {",
+                        "\t\tnd->root = nd->path;",
+                        "\t\tif (flags & LOOKUP_RCU) {",
+                        "\t\t\tnd->root_seq = nd->seq;",
+                        "\t\t} else {",
+                        "\t\t\tpath_get(&nd->root);",
+                        "\t\t\tnd->flags |= LOOKUP_ROOT_GRABBED;",
+                        "\t\t}",
+                        "\t}",
+                        "\treturn s;",
+                        "}"
+                    ],
+                    "start": 2203,
+                    "highlight": 2207
+                }
+            ],
+            "ins_idx": 269,
+            "addr": "0xffffffff813343c2"
+        },
+        "31978": {
+            "name": "path_init",
+            "parent_idx": 31977,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n2384",
+                    "code": [
+                        "/* Returns 0 and nd will be valid on success; Retuns error, otherwise. */",
+                        "static int path_parentat(struct nameidata *nd, unsigned flags,",
+                        "\t\t\t\tstruct path *parent)",
+                        "{",
+                        "\tconst char *s = path_init(nd, flags);",
+                        "\tint err = link_path_walk(s, nd);",
+                        "\tif (!err)",
+                        "\t\terr = complete_walk(nd);",
+                        "\tif (!err) {",
+                        "\t\t*parent = nd->path;",
+                        "\t\tnd->path.mnt = NULL;",
+                        "\t\tnd->path.dentry = NULL;",
+                        "\t}",
+                        "\tterminate_walk(nd);",
+                        "\treturn err;",
+                        "}"
+                    ],
+                    "start": 2380,
+                    "highlight": 2384
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff813371af"
+        },
+        "31977": {
+            "name": "path_parentat",
+            "parent_idx": 31971,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n2407",
+                    "code": [
+                        "static struct filename *filename_parentat(int dfd, struct filename *name,",
+                        "\t\t\t\tunsigned int flags, struct path *parent,",
+                        "\t\t\t\tstruct qstr *last, int *type)",
+                        "{",
+                        "\tint retval;",
+                        "\tstruct nameidata nd;",
+                        "",
+                        "\tif (IS_ERR(name))",
+                        "\t\treturn name;",
+                        "\tset_nameidata(&nd, dfd, name);",
+                        "\tretval = path_parentat(&nd, flags | LOOKUP_RCU, parent);",
+                        "\tif (unlikely(retval == -ECHILD))",
+                        "\t\tretval = path_parentat(&nd, flags, parent);",
+                        "\tif (unlikely(retval == -ESTALE))",
+                        "\t\tretval = path_parentat(&nd, flags | LOOKUP_REVAL, parent);",
+                        "\tif (likely(!retval)) {",
+                        "\t\t*last = nd.last;",
+                        "\t\t*type = nd.last_type;",
+                        "\t\taudit_inode(name, parent->dentry, AUDIT_INODE_PARENT);",
+                        "\t} else {",
+                        "\t\tputname(name);",
+                        "\t\tname = ERR_PTR(retval);",
+                        "\t}",
+                        "\trestore_nameidata();",
+                        "\treturn name;",
+                        "}"
+                    ],
+                    "start": 2397,
+                    "highlight": 2407
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff813393dc"
+        },
+        "31971": {
+            "name": "filename_parentat",
+            "parent_idx": 31889,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n3732",
+                    "code": [
+                        "long do_rmdir(int dfd, struct filename *name)",
+                        "{",
+                        "\tint error = 0;",
+                        "\tstruct dentry *dentry;",
+                        "\tstruct path path;",
+                        "\tstruct qstr last;",
+                        "\tint type;",
+                        "\tunsigned int lookup_flags = 0;",
+                        "retry:",
+                        "\tname = filename_parentat(dfd, name, lookup_flags,",
+                        "\t\t\t\t&path, &last, &type);",
+                        "\tif (IS_ERR(name))",
+                        "\t\treturn PTR_ERR(name);",
+                        "",
+                        "\tswitch (type) {",
+                        "\tcase LAST_DOTDOT:",
+                        "\t\terror = -ENOTEMPTY;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_DOT:",
+                        "\t\terror = -EINVAL;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_ROOT:",
+                        "\t\terror = -EBUSY;",
+                        "\t\tgoto exit1;",
+                        "\t}",
+                        "",
+                        "\terror = mnt_want_write(path.mnt);",
+                        "\tif (error)",
+                        "\t\tgoto exit1;",
+                        "",
+                        "\tinode_lock_nested(path.dentry->d_inode, I_MUTEX_PARENT);",
+                        "\tdentry = __lookup_hash(&last, path.dentry, lookup_flags);",
+                        "\terror = PTR_ERR(dentry);",
+                        "\tif (IS_ERR(dentry))",
+                        "\t\tgoto exit2;",
+                        "\tif (!dentry->d_inode) {",
+                        "\t\terror = -ENOENT;",
+                        "\t\tgoto exit3;",
+                        "\t}",
+                        "\terror = security_path_rmdir(&path, dentry);",
+                        "\tif (error)",
+                        "\t\tgoto exit3;",
+                        "\terror = vfs_rmdir(path.dentry->d_inode, dentry);",
+                        "exit3:",
+                        "\tdput(dentry);",
+                        "exit2:",
+                        "\tinode_unlock(path.dentry->d_inode);",
+                        "\tmnt_drop_write(path.mnt);",
+                        "exit1:",
+                        "\tpath_put(&path);",
+                        "\tputname(name);",
+                        "\tif (retry_estale(error, lookup_flags)) {",
+                        "\t\tlookup_flags |= LOOKUP_REVAL;",
+                        "\t\tgoto retry;",
+                        "\t}",
+                        "\treturn error;",
+                        "}"
+                    ],
+                    "start": 3723,
+                    "highlight": 3732
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff8133c0e6"
+        },
+        "31889": {
+            "name": "__x64_sys_rmdir(indirect)",
+            "parent_idx": 31888,
+            "source_line": [
+                {
+                    "file": "arch/x86/entry/common.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/entry/common.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n46",
+                    "code": [
+                        "#ifdef CONFIG_X86_64",
+                        "__visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)",
+                        "{",
+                        "\tnr = syscall_enter_from_user_mode(regs, nr);",
+                        "",
+                        "\tinstrumentation_begin();",
+                        "\tif (likely(nr < NR_syscalls)) {",
+                        "\t\tnr = array_index_nospec(nr, NR_syscalls);",
+                        "\t\tregs->ax = sys_call_table[nr](regs);",
+                        "#ifdef CONFIG_X86_X32_ABI",
+                        "\t} else if (likely((nr & __X32_SYSCALL_BIT) &&",
+                        "\t\t\t  (nr & ~__X32_SYSCALL_BIT) < X32_NR_syscalls)) {",
+                        "\t\tnr = array_index_nospec(nr & ~__X32_SYSCALL_BIT,",
+                        "\t\t\t\t\tX32_NR_syscalls);",
+                        "\t\tregs->ax = x32_sys_call_table[nr](regs);",
+                        "#endif",
+                        "\t}",
+                        "\tinstrumentation_end();",
+                        "\tsyscall_exit_to_user_mode(regs);",
+                        "}"
+                    ],
+                    "start": 38,
+                    "highlight": 46
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff822d875e"
+        },
+        "31888": {
+            "name": "do_syscall_64",
+            "parent_idx": 31887,
+            "source_line": [
+                {
+                    "file": "arch/x86/entry/entry_64.S",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/entry/entry_64.S?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n118",
+                    "code": [
+                        "SYM_CODE_START(entry_SYSCALL_64)",
+                        "\tUNWIND_HINT_EMPTY",
+                        "",
+                        "\tswapgs",
+                        "\t/* tss.sp2 is scratch space. */",
+                        "\tmovq\t%rsp, PER_CPU_VAR(cpu_tss_rw + TSS_sp2)",
+                        "\tSWITCH_TO_KERNEL_CR3 scratch_reg=%rsp",
+                        "\tmovq\tPER_CPU_VAR(cpu_current_top_of_stack), %rsp",
+                        "",
+                        "\t/* Construct struct pt_regs on stack */",
+                        "\tpushq\t$__USER_DS\t\t\t\t/* pt_regs->ss */",
+                        "\tpushq\tPER_CPU_VAR(cpu_tss_rw + TSS_sp2)\t/* pt_regs->sp */",
+                        "\tpushq\t%r11\t\t\t\t\t/* pt_regs->flags */",
+                        "\tpushq\t$__USER_CS\t\t\t\t/* pt_regs->cs */",
+                        "\tpushq\t%rcx\t\t\t\t\t/* pt_regs->ip */",
+                        "SYM_INNER_LABEL(entry_SYSCALL_64_after_hwframe, SYM_L_GLOBAL)",
+                        "\tpushq\t%rax\t\t\t\t\t/* pt_regs->orig_ax */",
+                        "",
+                        "\tPUSH_AND_CLEAR_REGS rax=$-ENOSYS",
+                        "",
+                        "\t/* IRQs are off. */",
+                        "\tmovq\t%rax, %rdi",
+                        "\tmovq\t%rsp, %rsi",
+                        "\tcall\tdo_syscall_64\t\t/* returns with IRQs disabled */",
+                        "",
+                        "\t/*",
+                        "\t * Try to use SYSRET instead of IRET if we're returning to",
+                        "\t * a completely clean 64-bit userspace context.  If we're not,",
+                        "\t * go to the slow exit path.",
+                        "\t */",
+                        "\tmovq\tRCX(%rsp), %rcx",
+                        "\tmovq\tRIP(%rsp), %r11",
+                        "",
+                        "\tcmpq\t%rcx, %r11\t/* SYSRET requires RCX == RIP */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/*",
+                        "\t * On Intel CPUs, SYSRET with non-canonical RCX/RIP will #GP",
+                        "\t * in kernel space.  This essentially lets the user take over",
+                        "\t * the kernel, since userspace controls RSP.",
+                        "\t *",
+                        "\t * If width of \"canonical tail\" ever becomes variable, this will need",
+                        "\t * to be updated to remain correct on both old and new CPUs.",
+                        "\t *",
+                        "\t * Change top bits to match most significant bit (47th or 56th bit",
+                        "\t * depending on paging mode) in the address.",
+                        "\t */",
+                        "#ifdef CONFIG_X86_5LEVEL",
+                        "\tALTERNATIVE \"shl $(64 - 48), %rcx; sar $(64 - 48), %rcx\", \\",
+                        "\t\t\"shl $(64 - 57), %rcx; sar $(64 - 57), %rcx\", X86_FEATURE_LA57",
+                        "#else",
+                        "\tshl\t$(64 - (__VIRTUAL_MASK_SHIFT+1)), %rcx",
+                        "\tsar\t$(64 - (__VIRTUAL_MASK_SHIFT+1)), %rcx",
+                        "#endif",
+                        "",
+                        "\t/* If this changed %rcx, it was not canonical */",
+                        "\tcmpq\t%rcx, %r11",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\tcmpq\t$__USER_CS, CS(%rsp)\t\t/* CS must match SYSRET */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\tmovq\tR11(%rsp), %r11",
+                        "\tcmpq\t%r11, EFLAGS(%rsp)\t\t/* R11 == RFLAGS */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/*",
+                        "\t * SYSCALL clears RF when it saves RFLAGS in R11 and SYSRET cannot",
+                        "\t * restore RF properly. If the slowpath sets it for whatever reason, we",
+                        "\t * need to restore it correctly.",
+                        "\t *",
+                        "\t * SYSRET can restore TF, but unlike IRET, restoring TF results in a",
+                        "\t * trap from userspace immediately after SYSRET.  This would cause an",
+                        "\t * infinite loop whenever #DB happens with register state that satisfies",
+                        "\t * the opportunistic SYSRET conditions.  For example, single-stepping",
+                        "\t * this user code:",
+                        "\t *",
+                        "\t *           movq\t$stuck_here, %rcx",
+                        "\t *           pushfq",
+                        "\t *           popq %r11",
+                        "\t *   stuck_here:",
+                        "\t *",
+                        "\t * would never get past 'stuck_here'.",
+                        "\t */",
+                        "\ttestq\t$(X86_EFLAGS_RF|X86_EFLAGS_TF), %r11",
+                        "\tjnz\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/* nothing to check for RSP */",
+                        "",
+                        "\tcmpq\t$__USER_DS, SS(%rsp)\t\t/* SS must match SYSRET */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/*",
+                        "\t * We win! This label is here just for ease of understanding",
+                        "\t * perf profiles. Nothing jumps here.",
+                        "\t */",
+                        "syscall_return_via_sysret:",
+                        "\t/* rcx and r11 are already restored (see code above) */",
+                        "\tPOP_REGS pop_rdi=0 skip_r11rcx=1",
+                        "",
+                        "\t/*",
+                        "\t * Now all regs are restored except RSP and RDI.",
+                        "\t * Save old stack pointer and switch to trampoline stack.",
+                        "\t */",
+                        "\tmovq\t%rsp, %rdi",
+                        "\tmovq\tPER_CPU_VAR(cpu_tss_rw + TSS_sp0), %rsp",
+                        "\tUNWIND_HINT_EMPTY",
+                        "",
+                        "\tpushq\tRSP-RDI(%rdi)\t/* RSP */",
+                        "\tpushq\t(%rdi)\t\t/* RDI */",
+                        "",
+                        "\t/*",
+                        "\t * We are on the trampoline stack.  All regs except RDI are live.",
+                        "\t * We can do future final exit work right here.",
+                        "\t */",
+                        "\tSTACKLEAK_ERASE_NOCLOBBER",
+                        "",
+                        "\tSWITCH_TO_USER_CR3_STACK scratch_reg=%rdi",
+                        "",
+                        "\tpopq\t%rdi",
+                        "\tpopq\t%rsp",
+                        "\tUSERGS_SYSRET64",
+                        "SYM_CODE_END(entry_SYSCALL_64)"
+                    ],
+                    "start": 95,
+                    "highlight": 118
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff82400077"
+        },
+        "31887": {
+            "name": "1395_syscall_11",
+            "parent_idx": 1,
+            "source_line": [],
+            "ins_idx": 0,
+            "addr": "0x0"
+        },
+        "1": {
+            "name": "PoC",
+            "parent_idx": 0,
+            "source_line": [],
+            "ins_idx": 0,
+            "addr": "0x0"
+        },
+        "31969": {
+            "name": "+0xce",
+            "parent_idx": 31962,
+            "source_line": [
+                {
+                    "file": "mm/slub.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/mm/slub.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n3181",
+                    "code": [
+                        "void kmem_cache_free(struct kmem_cache *s, void *x)",
+                        "{",
+                        "\ts = cache_from_obj(s, x);",
+                        "\tif (!s)",
+                        "\t\treturn;",
+                        "\tslab_free(s, virt_to_head_page(x), x, NULL, 1, _RET_IP_);",
+                        "\ttrace_kmem_cache_free(_RET_IP_, x);",
+                        "}",
+                        "EXPORT_SYMBOL(kmem_cache_free);",
+                        "",
+                        "struct detached_freelist {",
+                        "\tstruct page *page;",
+                        "\tvoid *tail;",
+                        "\tvoid *freelist;",
+                        "\tint cnt;",
+                        "\tstruct kmem_cache *s;",
+                        "};",
+                        "",
+                        "/*",
+                        " * This function progressively scans the array with free objects (with",
+                        " * a limited look ahead) and extract objects belonging to the same",
+                        " * page.  It builds a detached freelist directly within the given",
+                        " * page/objects.  This can happen without any need for",
+                        " * synchronization, because the objects are owned by running process.",
+                        " * The freelist is build up as a single linked list in the objects.",
+                        " * The idea is, that this detached freelist can then be bulk",
+                        " * transferred to the real freelist(s), but only requiring a single",
+                        " * synchronization primitive.  Look ahead in the array is limited due",
+                        " * to performance reasons.",
+                        " */",
+                        "static inline",
+                        "int build_detached_freelist(struct kmem_cache *s, size_t size,",
+                        "\t\t\t    void **p, struct detached_freelist *df)",
+                        "{",
+                        "\tsize_t first_skipped_index = 0;",
+                        "\tint lookahead = 3;",
+                        "\tvoid *object;",
+                        "\tstruct page *page;",
+                        "",
+                        "\t/* Always re-init detached_freelist */",
+                        "\tdf->page = NULL;",
+                        "",
+                        "\tdo {",
+                        "\t\tobject = p[--size];",
+                        "\t\t/* Do we need !ZERO_OR_NULL_PTR(object) here? (for kfree) */",
+                        "\t} while (!object && size);",
+                        "",
+                        "\tif (!object)",
+                        "\t\treturn 0;",
+                        "",
+                        "\tpage = virt_to_head_page(object);",
+                        "\tif (!s) {",
+                        "\t\t/* Handle kalloc'ed objects */",
+                        "\t\tif (unlikely(!PageSlab(page))) {",
+                        "\t\t\tBUG_ON(!PageCompound(page));",
+                        "\t\t\tkfree_hook(object);",
+                        "\t\t\t__free_pages(page, compound_order(page));",
+                        "\t\t\tp[size] = NULL; /* mark object processed */",
+                        "\t\t\treturn size;",
+                        "\t\t}",
+                        "\t\t/* Derive kmem_cache from object */",
+                        "\t\tdf->s = page->slab_cache;",
+                        "\t} else {",
+                        "\t\tdf->s = cache_from_obj(s, object); /* Support for memcg */",
+                        "\t}",
+                        "",
+                        "\t/* Start new detached freelist */",
+                        "\tdf->page = page;",
+                        "\tset_freepointer(df->s, object, NULL);",
+                        "\tdf->tail = object;",
+                        "\tdf->freelist = object;",
+                        "\tp[size] = NULL; /* mark object processed */",
+                        "\tdf->cnt = 1;",
+                        "",
+                        "\twhile (size) {",
+                        "\t\tobject = p[--size];",
+                        "\t\tif (!object)",
+                        "\t\t\tcontinue; /* Skip processed objects */",
+                        "",
+                        "\t\t/* df->page is always set at this point */",
+                        "\t\tif (df->page == virt_to_head_page(object)) {",
+                        "\t\t\t/* Opportunity build freelist */",
+                        "\t\t\tset_freepointer(df->s, object, df->freelist);",
+                        "\t\t\tdf->freelist = object;",
+                        "\t\t\tdf->cnt++;",
+                        "\t\t\tp[size] = NULL; /* mark object processed */",
+                        "",
+                        "\t\t\tcontinue;",
+                        "\t\t}",
+                        "",
+                        "\t\t/* Limit look ahead search */",
+                        "\t\tif (!--lookahead)",
+                        "\t\t\tbreak;",
+                        "",
+                        "\t\tif (!first_skipped_index)",
+                        "\t\t\tfirst_skipped_index = size + 1;",
+                        "\t}",
+                        "",
+                        "\treturn first_skipped_index;",
+                        "}"
+                    ],
+                    "start": 3153,
+                    "highlight": 3181
+                }
+            ],
+            "ins_idx": 546,
+            "addr": "0xffffffff8130955e"
+        },
+        "31962": {
+            "name": "putname",
+            "parent_idx": 31889,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n3773",
+                    "code": [
+                        "long do_rmdir(int dfd, struct filename *name)",
+                        "{",
+                        "\tint error = 0;",
+                        "\tstruct dentry *dentry;",
+                        "\tstruct path path;",
+                        "\tstruct qstr last;",
+                        "\tint type;",
+                        "\tunsigned int lookup_flags = 0;",
+                        "retry:",
+                        "\tname = filename_parentat(dfd, name, lookup_flags,",
+                        "\t\t\t\t&path, &last, &type);",
+                        "\tif (IS_ERR(name))",
+                        "\t\treturn PTR_ERR(name);",
+                        "",
+                        "\tswitch (type) {",
+                        "\tcase LAST_DOTDOT:",
+                        "\t\terror = -ENOTEMPTY;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_DOT:",
+                        "\t\terror = -EINVAL;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_ROOT:",
+                        "\t\terror = -EBUSY;",
+                        "\t\tgoto exit1;",
+                        "\t}",
+                        "",
+                        "\terror = mnt_want_write(path.mnt);",
+                        "\tif (error)",
+                        "\t\tgoto exit1;",
+                        "",
+                        "\tinode_lock_nested(path.dentry->d_inode, I_MUTEX_PARENT);",
+                        "\tdentry = __lookup_hash(&last, path.dentry, lookup_flags);",
+                        "\terror = PTR_ERR(dentry);",
+                        "\tif (IS_ERR(dentry))",
+                        "\t\tgoto exit2;",
+                        "\tif (!dentry->d_inode) {",
+                        "\t\terror = -ENOENT;",
+                        "\t\tgoto exit3;",
+                        "\t}",
+                        "\terror = security_path_rmdir(&path, dentry);",
+                        "\tif (error)",
+                        "\t\tgoto exit3;",
+                        "\terror = vfs_rmdir(path.dentry->d_inode, dentry);",
+                        "exit3:",
+                        "\tdput(dentry);",
+                        "exit2:",
+                        "\tinode_unlock(path.dentry->d_inode);",
+                        "\tmnt_drop_write(path.mnt);",
+                        "exit1:",
+                        "\tpath_put(&path);",
+                        "\tputname(name);",
+                        "\tif (retry_estale(error, lookup_flags)) {",
+                        "\t\tlookup_flags |= LOOKUP_REVAL;",
+                        "\t\tgoto retry;",
+                        "\t}",
+                        "\treturn error;",
+                        "}"
+                    ],
+                    "start": 3723,
+                    "highlight": 3773
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff8133c153"
+        },
+        "31980": {
+            "name": "+0x22",
+            "parent_idx": 31978,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n2207",
+                    "code": [
+                        "/* must be paired with terminate_walk() */",
+                        "static const char *path_init(struct nameidata *nd, unsigned flags)",
+                        "{",
+                        "\tint error;",
+                        "\tconst char *s = nd->name->name;",
+                        "",
+                        "\tif (!*s)",
+                        "\t\tflags &= ~LOOKUP_RCU;",
+                        "\tif (flags & LOOKUP_RCU)",
+                        "\t\trcu_read_lock();",
+                        "",
+                        "\tnd->flags = flags | LOOKUP_JUMPED;",
+                        "\tnd->depth = 0;",
+                        "",
+                        "\tnd->m_seq = __read_seqcount_begin(&mount_lock.seqcount);",
+                        "\tnd->r_seq = __read_seqcount_begin(&rename_lock.seqcount);",
+                        "\tsmp_rmb();",
+                        "",
+                        "\tif (flags & LOOKUP_ROOT) {",
+                        "\t\tstruct dentry *root = nd->root.dentry;",
+                        "\t\tstruct inode *inode = root->d_inode;",
+                        "\t\tif (*s && unlikely(!d_can_lookup(root)))",
+                        "\t\t\treturn ERR_PTR(-ENOTDIR);",
+                        "\t\tnd->path = nd->root;",
+                        "\t\tnd->inode = inode;",
+                        "\t\tif (flags & LOOKUP_RCU) {",
+                        "\t\t\tnd->seq = read_seqcount_begin(&nd->path.dentry->d_seq);",
+                        "\t\t\tnd->root_seq = nd->seq;",
+                        "\t\t} else {",
+                        "\t\t\tpath_get(&nd->path);",
+                        "\t\t}",
+                        "\t\treturn s;",
+                        "\t}",
+                        "",
+                        "\tnd->root.mnt = NULL;",
+                        "\tnd->path.mnt = NULL;",
+                        "\tnd->path.dentry = NULL;",
+                        "",
+                        "\t/* Absolute pathname -- fetch the root (LOOKUP_IN_ROOT uses nd->dfd). */",
+                        "\tif (*s == '/' && !(flags & LOOKUP_IN_ROOT)) {",
+                        "\t\terror = nd_jump_root(nd);",
+                        "\t\tif (unlikely(error))",
+                        "\t\t\treturn ERR_PTR(error);",
+                        "\t\treturn s;",
+                        "\t}",
+                        "",
+                        "\t/* Relative pathname -- get the starting-point it is relative to. */",
+                        "\tif (nd->dfd == AT_FDCWD) {",
+                        "\t\tif (flags & LOOKUP_RCU) {",
+                        "\t\t\tstruct fs_struct *fs = current->fs;",
+                        "\t\t\tunsigned seq;",
+                        "",
+                        "\t\t\tdo {",
+                        "\t\t\t\tseq = read_seqcount_begin(&fs->seq);",
+                        "\t\t\t\tnd->path = fs->pwd;",
+                        "\t\t\t\tnd->inode = nd->path.dentry->d_inode;",
+                        "\t\t\t\tnd->seq = __read_seqcount_begin(&nd->path.dentry->d_seq);",
+                        "\t\t\t} while (read_seqcount_retry(&fs->seq, seq));",
+                        "\t\t} else {",
+                        "\t\t\tget_fs_pwd(current->fs, &nd->path);",
+                        "\t\t\tnd->inode = nd->path.dentry->d_inode;",
+                        "\t\t}",
+                        "\t} else {",
+                        "\t\t/* Caller must check execute permissions on the starting path component */",
+                        "\t\tstruct fd f = fdget_raw(nd->dfd);",
+                        "\t\tstruct dentry *dentry;",
+                        "",
+                        "\t\tif (!f.file)",
+                        "\t\t\treturn ERR_PTR(-EBADF);",
+                        "",
+                        "\t\tdentry = f.file->f_path.dentry;",
+                        "",
+                        "\t\tif (*s && unlikely(!d_can_lookup(dentry))) {",
+                        "\t\t\tfdput(f);",
+                        "\t\t\treturn ERR_PTR(-ENOTDIR);",
+                        "\t\t}",
+                        "",
+                        "\t\tnd->path = f.file->f_path;",
+                        "\t\tif (flags & LOOKUP_RCU) {",
+                        "\t\t\tnd->inode = nd->path.dentry->d_inode;",
+                        "\t\t\tnd->seq = read_seqcount_begin(&nd->path.dentry->d_seq);",
+                        "\t\t} else {",
+                        "\t\t\tpath_get(&nd->path);",
+                        "\t\t\tnd->inode = nd->path.dentry->d_inode;",
+                        "\t\t}",
+                        "\t\tfdput(f);",
+                        "\t}",
+                        "",
+                        "\t/* For scoped-lookups we need to set the root to the dirfd as well. */",
+                        "\tif (flags & LOOKUP_IS_SCOPED) {",
+                        "\t\tnd->root = nd->path;",
+                        "\t\tif (flags & LOOKUP_RCU) {",
+                        "\t\t\tnd->root_seq = nd->seq;",
+                        "\t\t} else {",
+                        "\t\t\tpath_get(&nd->root);",
+                        "\t\t\tnd->flags |= LOOKUP_ROOT_GRABBED;",
+                        "\t\t}",
+                        "\t}",
+                        "\treturn s;",
+                        "}"
+                    ],
+                    "start": 2203,
+                    "highlight": 2207
+                }
+            ],
+            "ins_idx": 545,
+            "addr": "0xffffffff813343b2"
+        },
+        "31967": {
+            "name": "+0x5d",
+            "parent_idx": 31962,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n259",
+                    "code": [
+                        "\tif (name->name != name->iname) {",
+                        "\t\t__putname(name->name);",
+                        "\t\tkfree(name);",
+                        "\t} else",
+                        "\t\t__putname(name);",
+                        "}"
+                    ],
+                    "start": 255,
+                    "highlight": 259
+                }
+            ],
+            "ins_idx": 829,
+            "addr": "0xffffffff81338f6d"
+        },
+        "31974": {
+            "name": "+0xb7",
+            "parent_idx": 31971,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n531",
+                    "code": [
+                        "static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)",
+                        "{",
+                        "\tstruct nameidata *old = current->nameidata;",
+                        "\tp->stack = p->internal;",
+                        "\tp->dfd = dfd;",
+                        "\tp->name = name;",
+                        "\tp->total_link_count = old ? old->total_link_count : 0;",
+                        "\tp->saved = old;",
+                        "\tcurrent->nameidata = p;",
+                        "}"
+                    ],
+                    "start": 526,
+                    "highlight": 531
+                },
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n2406",
+                    "code": [
+                        "static struct filename *filename_parentat(int dfd, struct filename *name,",
+                        "\t\t\t\tunsigned int flags, struct path *parent,",
+                        "\t\t\t\tstruct qstr *last, int *type)",
+                        "{",
+                        "\tint retval;",
+                        "\tstruct nameidata nd;",
+                        "",
+                        "\tif (IS_ERR(name))",
+                        "\t\treturn name;",
+                        "\tset_nameidata(&nd, dfd, name);",
+                        "\tretval = path_parentat(&nd, flags | LOOKUP_RCU, parent);",
+                        "\tif (unlikely(retval == -ECHILD))",
+                        "\t\tretval = path_parentat(&nd, flags, parent);",
+                        "\tif (unlikely(retval == -ESTALE))",
+                        "\t\tretval = path_parentat(&nd, flags | LOOKUP_REVAL, parent);",
+                        "\tif (likely(!retval)) {",
+                        "\t\t*last = nd.last;",
+                        "\t\t*type = nd.last_type;",
+                        "\t\taudit_inode(name, parent->dentry, AUDIT_INODE_PARENT);",
+                        "\t} else {",
+                        "\t\tputname(name);",
+                        "\t\tname = ERR_PTR(retval);",
+                        "\t}",
+                        "\trestore_nameidata();",
+                        "\treturn name;",
+                        "}"
+                    ],
+                    "start": 2397,
+                    "highlight": 2406
+                }
+            ],
+            "ins_idx": 828,
+            "addr": "0xffffffff81339357"
+        },
+        "31965": {
+            "name": "+0x3",
+            "parent_idx": 31962,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n249",
+                    "code": [
+                        "void putname(struct filename *name)",
+                        "{",
+                        "\tBUG_ON(name->refcnt <= 0);",
+                        "",
+                        "\tif (--name->refcnt > 0)",
+                        "\t\treturn;",
+                        "",
+                        "\tif (name->name != name->iname) {",
+                        "\t\t__putname(name->name);",
+                        "\t\tkfree(name);",
+                        "\t} else",
+                        "\t\t__putname(name);",
+                        "}"
+                    ],
+                    "start": 248,
+                    "highlight": 249
+                }
+            ],
+            "ins_idx": 1216,
+            "addr": "0xffffffff81338f13"
+        },
+        "31972": {
+            "name": "+0x16",
+            "parent_idx": 31971,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n2400",
+                    "code": [
+                        "static struct filename *filename_parentat(int dfd, struct filename *name,",
+                        "\t\t\t\tunsigned int flags, struct path *parent,",
+                        "\t\t\t\tstruct qstr *last, int *type)",
+                        "{",
+                        "\tint retval;",
+                        "\tstruct nameidata nd;",
+                        "",
+                        "\tif (IS_ERR(name))",
+                        "\t\treturn name;",
+                        "\tset_nameidata(&nd, dfd, name);",
+                        "\tretval = path_parentat(&nd, flags | LOOKUP_RCU, parent);",
+                        "\tif (unlikely(retval == -ECHILD))",
+                        "\t\tretval = path_parentat(&nd, flags, parent);",
+                        "\tif (unlikely(retval == -ESTALE))",
+                        "\t\tretval = path_parentat(&nd, flags | LOOKUP_REVAL, parent);",
+                        "\tif (likely(!retval)) {",
+                        "\t\t*last = nd.last;",
+                        "\t\t*type = nd.last_type;",
+                        "\t\taudit_inode(name, parent->dentry, AUDIT_INODE_PARENT);",
+                        "\t} else {",
+                        "\t\tputname(name);",
+                        "\t\tname = ERR_PTR(retval);",
+                        "\t}",
+                        "\trestore_nameidata();",
+                        "\treturn name;",
+                        "}"
+                    ],
+                    "start": 2397,
+                    "highlight": 2400
+                }
+            ],
+            "ins_idx": 1215,
+            "addr": "0xffffffff813392b6"
+        },
+        "31961": {
+            "name": "+0x100",
+            "parent_idx": 31889,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n3773",
+                    "code": [
+                        "long do_rmdir(int dfd, struct filename *name)",
+                        "{",
+                        "\tint error = 0;",
+                        "\tstruct dentry *dentry;",
+                        "\tstruct path path;",
+                        "\tstruct qstr last;",
+                        "\tint type;",
+                        "\tunsigned int lookup_flags = 0;",
+                        "retry:",
+                        "\tname = filename_parentat(dfd, name, lookup_flags,",
+                        "\t\t\t\t&path, &last, &type);",
+                        "\tif (IS_ERR(name))",
+                        "\t\treturn PTR_ERR(name);",
+                        "",
+                        "\tswitch (type) {",
+                        "\tcase LAST_DOTDOT:",
+                        "\t\terror = -ENOTEMPTY;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_DOT:",
+                        "\t\terror = -EINVAL;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_ROOT:",
+                        "\t\terror = -EBUSY;",
+                        "\t\tgoto exit1;",
+                        "\t}",
+                        "",
+                        "\terror = mnt_want_write(path.mnt);",
+                        "\tif (error)",
+                        "\t\tgoto exit1;",
+                        "",
+                        "\tinode_lock_nested(path.dentry->d_inode, I_MUTEX_PARENT);",
+                        "\tdentry = __lookup_hash(&last, path.dentry, lookup_flags);",
+                        "\terror = PTR_ERR(dentry);",
+                        "\tif (IS_ERR(dentry))",
+                        "\t\tgoto exit2;",
+                        "\tif (!dentry->d_inode) {",
+                        "\t\terror = -ENOENT;",
+                        "\t\tgoto exit3;",
+                        "\t}",
+                        "\terror = security_path_rmdir(&path, dentry);",
+                        "\tif (error)",
+                        "\t\tgoto exit3;",
+                        "\terror = vfs_rmdir(path.dentry->d_inode, dentry);",
+                        "exit3:",
+                        "\tdput(dentry);",
+                        "exit2:",
+                        "\tinode_unlock(path.dentry->d_inode);",
+                        "\tmnt_drop_write(path.mnt);",
+                        "exit1:",
+                        "\tpath_put(&path);",
+                        "\tputname(name);",
+                        "\tif (retry_estale(error, lookup_flags)) {",
+                        "\t\tlookup_flags |= LOOKUP_REVAL;",
+                        "\t\tgoto retry;",
+                        "\t}",
+                        "\treturn error;",
+                        "}"
+                    ],
+                    "start": 3723,
+                    "highlight": 3773
+                }
+            ],
+            "ins_idx": 1616,
+            "addr": "0xffffffff8133c150"
+        },
+        "31970": {
+            "name": "+0x7e",
+            "parent_idx": 31889,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n3732",
+                    "code": [
+                        "long do_rmdir(int dfd, struct filename *name)",
+                        "{",
+                        "\tint error = 0;",
+                        "\tstruct dentry *dentry;",
+                        "\tstruct path path;",
+                        "\tstruct qstr last;",
+                        "\tint type;",
+                        "\tunsigned int lookup_flags = 0;",
+                        "retry:",
+                        "\tname = filename_parentat(dfd, name, lookup_flags,",
+                        "\t\t\t\t&path, &last, &type);",
+                        "\tif (IS_ERR(name))",
+                        "\t\treturn PTR_ERR(name);",
+                        "",
+                        "\tswitch (type) {",
+                        "\tcase LAST_DOTDOT:",
+                        "\t\terror = -ENOTEMPTY;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_DOT:",
+                        "\t\terror = -EINVAL;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_ROOT:",
+                        "\t\terror = -EBUSY;",
+                        "\t\tgoto exit1;",
+                        "\t}",
+                        "",
+                        "\terror = mnt_want_write(path.mnt);",
+                        "\tif (error)",
+                        "\t\tgoto exit1;",
+                        "",
+                        "\tinode_lock_nested(path.dentry->d_inode, I_MUTEX_PARENT);",
+                        "\tdentry = __lookup_hash(&last, path.dentry, lookup_flags);",
+                        "\terror = PTR_ERR(dentry);",
+                        "\tif (IS_ERR(dentry))",
+                        "\t\tgoto exit2;",
+                        "\tif (!dentry->d_inode) {",
+                        "\t\terror = -ENOENT;",
+                        "\t\tgoto exit3;",
+                        "\t}",
+                        "\terror = security_path_rmdir(&path, dentry);",
+                        "\tif (error)",
+                        "\t\tgoto exit3;",
+                        "\terror = vfs_rmdir(path.dentry->d_inode, dentry);",
+                        "exit3:",
+                        "\tdput(dentry);",
+                        "exit2:",
+                        "\tinode_unlock(path.dentry->d_inode);",
+                        "\tmnt_drop_write(path.mnt);",
+                        "exit1:",
+                        "\tpath_put(&path);",
+                        "\tputname(name);",
+                        "\tif (retry_estale(error, lookup_flags)) {",
+                        "\t\tlookup_flags |= LOOKUP_REVAL;",
+                        "\t\tgoto retry;",
+                        "\t}",
+                        "\treturn error;",
+                        "}"
+                    ],
+                    "start": 3723,
+                    "highlight": 3732
+                }
+            ],
+            "ins_idx": 1615,
+            "addr": "0xffffffff8133c0ce"
+        },
+        "31911": {
+            "name": "+0x9b",
+            "parent_idx": 31889,
+            "source_line": [
+                {
+                    "file": "fs/namei.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/namei.c?id=fb893de323e2d39f7a1f6df425703a2edbdf56ea#n3732",
+                    "code": [
+                        "long do_rmdir(int dfd, struct filename *name)",
+                        "{",
+                        "\tint error = 0;",
+                        "\tstruct dentry *dentry;",
+                        "\tstruct path path;",
+                        "\tstruct qstr last;",
+                        "\tint type;",
+                        "\tunsigned int lookup_flags = 0;",
+                        "retry:",
+                        "\tname = filename_parentat(dfd, name, lookup_flags,",
+                        "\t\t\t\t&path, &last, &type);",
+                        "\tif (IS_ERR(name))",
+                        "\t\treturn PTR_ERR(name);",
+                        "",
+                        "\tswitch (type) {",
+                        "\tcase LAST_DOTDOT:",
+                        "\t\terror = -ENOTEMPTY;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_DOT:",
+                        "\t\terror = -EINVAL;",
+                        "\t\tgoto exit1;",
+                        "\tcase LAST_ROOT:",
+                        "\t\terror = -EBUSY;",
+                        "\t\tgoto exit1;",
+                        "\t}",
+                        "",
+                        "\terror = mnt_want_write(path.mnt);",
+                        "\tif (error)",
+                        "\t\tgoto exit1;",
+                        "",
+                        "\tinode_lock_nested(path.dentry->d_inode, I_MUTEX_PARENT);",
+                        "\tdentry = __lookup_hash(&last, path.dentry, lookup_flags);",
+                        "\terror = PTR_ERR(dentry);",
+                        "\tif (IS_ERR(dentry))",
+                        "\t\tgoto exit2;",
+                        "\tif (!dentry->d_inode) {",
+                        "\t\terror = -ENOENT;",
+                        "\t\tgoto exit3;",
+                        "\t}",
+                        "\terror = security_path_rmdir(&path, dentry);",
+                        "\tif (error)",
+                        "\t\tgoto exit3;",
+                        "\terror = vfs_rmdir(path.dentry->d_inode, dentry);",
+                        "exit3:",
+                        "\tdput(dentry);",
+                        "exit2:",
+                        "\tinode_unlock(path.dentry->d_inode);",
+                        "\tmnt_drop_write(path.mnt);",
+                        "exit1:",
+                        "\tpath_put(&path);",
+                        "\tputname(name);",
+                        "\tif (retry_estale(error, lookup_flags)) {",
+                        "\t\tlookup_flags |= LOOKUP_REVAL;",
+                        "\t\tgoto retry;",
+                        "\t}",
+                        "\treturn error;",
+                        "}"
+                    ],
+                    "start": 3723,
+                    "highlight": 3732
+                }
+            ],
+            "ins_idx": 9629,
+            "addr": "0xffffffff8133c0eb"
+        }
+    },
+    "ins": {
+        "269": {
+            "name": "mov r13, qword ptr [r13]",
+            "desc": "Invalid Memory Access\nUse-After-Free.",
+            "call_idx": 31981,
+            "inputs": [
+                59440,
+                59441
+            ],
+            "outputs": [
+                59442
+            ]
+        },
+        "546": {
+            "name": "ret ",
+            "desc": "pointer free",
+            "call_idx": 31969,
+            "inputs": [
+                59422
+            ],
+            "outputs": [
+                59423
+            ]
+        },
+        "545": {
+            "name": "mov r13, qword ptr [r12 + 0xc0]",
+            "desc": "",
+            "call_idx": 31980,
+            "inputs": [
+                59437,
+                59438
+            ],
+            "outputs": [
+                59439
+            ]
+        },
+        "829": {
+            "name": "mov rsi, rbp",
+            "desc": "",
+            "call_idx": 31967,
+            "inputs": [
+                59417
+            ],
+            "outputs": [
+                59418
+            ]
+        },
+        "828": {
+            "name": "mov qword ptr [rsp + 0xf8], r12",
+            "desc": "",
+            "call_idx": 31974,
+            "inputs": [
+                59429,
+                59430
+            ],
+            "outputs": [
+                59431
+            ]
+        },
+        "1216": {
+            "name": "mov rbp, rdi",
+            "desc": "",
+            "call_idx": 31965,
+            "inputs": [
+                59414
+            ],
+            "outputs": [
+                59415
+            ]
+        },
+        "1215": {
+            "name": "mov r12, rsi",
+            "desc": "",
+            "call_idx": 31972,
+            "inputs": [
+                59426
+            ],
+            "outputs": [
+                59427
+            ]
+        },
+        "1616": {
+            "name": "mov rdi, rbp",
+            "desc": "",
+            "call_idx": 31961,
+            "inputs": [
+                59408
+            ],
+            "outputs": [
+                59409
+            ]
+        },
+        "1615": {
+            "name": "mov rsi, rbp",
+            "desc": "",
+            "call_idx": 31970,
+            "inputs": [
+                59424
+            ],
+            "outputs": [
+                59425
+            ]
+        },
+        "9629": {
+            "name": "mov rbp, rax",
+            "desc": "",
+            "call_idx": 31911,
+            "inputs": [
+                59326
+            ],
+            "outputs": [
+                59327
+            ]
+        }
+    },
+    "data": {
+        "59440": {
+            "name": "R13",
+            "ins_idx": 269,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59441": {
+            "name": "[0xffff8881e6c25500]",
+            "ins_idx": 269,
+            "value": "0xffff8881e6c25520",
+            "sources": []
+        },
+        "59442": {
+            "name": "R13",
+            "ins_idx": 269,
+            "value": "0xffff8881e6c25520",
+            "sources": []
+        },
+        "59422": {
+            "name": "[0xffff8881e6c25500]",
+            "ins_idx": 546,
+            "value": "0x0",
+            "sources": []
+        },
+        "59423": {
+            "name": "[0xffff8881e6c25500]",
+            "ins_idx": 546,
+            "value": "0x0",
+            "sources": [
+                59441
+            ]
+        },
+        "59437": {
+            "name": "R12",
+            "ins_idx": 545,
+            "value": "0xffff8881e903fce8",
+            "sources": []
+        },
+        "59438": {
+            "name": "[0xffff8881e903fda8]",
+            "ins_idx": 545,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59439": {
+            "name": "R13",
+            "ins_idx": 545,
+            "value": "0xffff8881e6c25500",
+            "sources": [
+                59440
+            ]
+        },
+        "59417": {
+            "name": "RBP",
+            "ins_idx": 829,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59418": {
+            "name": "RSI",
+            "ins_idx": 829,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59429": {
+            "name": "RSP",
+            "ins_idx": 828,
+            "value": "0xffff8881e903fcb0",
+            "sources": []
+        },
+        "59430": {
+            "name": "R12",
+            "ins_idx": 828,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59431": {
+            "name": "[0xffff8881e903fda8]",
+            "ins_idx": 828,
+            "value": "0xffff8881e6c25500",
+            "sources": [
+                59438
+            ]
+        },
+        "59414": {
+            "name": "RDI",
+            "ins_idx": 1216,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59415": {
+            "name": "RBP",
+            "ins_idx": 1216,
+            "value": "0xffff8881e6c25500",
+            "sources": [
+                59417
+            ]
+        },
+        "59426": {
+            "name": "RSI",
+            "ins_idx": 1215,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59427": {
+            "name": "R12",
+            "ins_idx": 1215,
+            "value": "0xffff8881e6c25500",
+            "sources": [
+                59430
+            ]
+        },
+        "59408": {
+            "name": "RBP",
+            "ins_idx": 1616,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59409": {
+            "name": "RDI",
+            "ins_idx": 1616,
+            "value": "0xffff8881e6c25500",
+            "sources": [
+                59414
+            ]
+        },
+        "59424": {
+            "name": "RBP",
+            "ins_idx": 1615,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59425": {
+            "name": "RSI",
+            "ins_idx": 1615,
+            "value": "0xffff8881e6c25500",
+            "sources": [
+                59426
+            ]
+        },
+        "59326": {
+            "name": "RAX",
+            "ins_idx": 9629,
+            "value": "0xffff8881e6c25500",
+            "sources": []
+        },
+        "59327": {
+            "name": "RBP",
+            "ins_idx": 9629,
+            "value": "0xffff8881e6c25500",
+            "sources": [
+                59408,
+                59424
+            ]
+        }
+    },
+    "chain": {
+        "269": [
+            545,
+            546
+        ],
+        "546": [
+            829
+        ],
+        "545": [
+            828
+        ],
+        "829": [
+            1216
+        ],
+        "828": [
+            1215
+        ],
+        "1216": [
+            1616
+        ],
+        "1215": [
+            1615
+        ],
+        "1616": [
+            9629
+        ],
+        "1615": [
+            9629
+        ]
+    }
+}

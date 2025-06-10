@@ -1,0 +1,45 @@
+{
+  "version": 3,
+  "images": {
+    "debian-11.3-x86_64": {
+      "name": "Debian x86_64 image",
+      "image_group": "linux",
+      "url": "https://drive.google.com/open?id=19nGaTNpk-qH29FuXI3cy8I8wLU-rKC3E",
+      "iso": {
+        "url": "https://cdimage.debian.org/mirror/cdimage/archive/11.3.0/amd64/iso-cd/debian-11.3.0-amd64-netinst.iso"
+      },
+      "os": {
+        "name": "debian",
+        "version": "11.3",
+        "arch": "x86_64",
+        "build": "",
+        "binary_formats": ["elf"]
+      },
+      "hw": {
+        "default_disk_size": "4G",
+        "default_snapshot_size": "8G",
+        "nic": "e1000"
+      }
+    },
+	"debian-9.2.1-x86_64": {
+      "name": "Debian9 x86_64 image",
+      "image_group": "linux",
+      "url": "https://drive.google.com/open?id=1fybAk4Qb-0Ig8W3immpwBLc-SZoN7UUh",
+      "iso": {
+        "url": "https://cdimage.debian.org/mirror/cdimage/archive/9.2.1/amd64/iso-cd/debian-9.2.1-amd64-netinst.iso"
+      },
+      "os": {
+        "name": "debian",
+        "version": "9.2.1",
+        "arch": "x86_64",
+        "build": "",
+        "binary_formats": ["elf"]
+      },
+      "hw": {
+        "default_disk_size": "4G",
+        "default_snapshot_size": "8G",
+        "nic": "e1000"
+      }
+    }
+  }
+}

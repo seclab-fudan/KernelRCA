@@ -1,0 +1,1255 @@
+{
+    "report": "https://syzkaller.appspot.com/bug?id=8dba39eccdf108d625bf6acb2bea1aa0c7e1fd61",
+    "title": "general protection fault in xt_rateest_put",
+    "call": {
+        "223": {
+            "name": "+0x2f",
+            "parent_idx": 217,
+            "source_line": [
+                {
+                    "file": "./include/net/netns/generic.h",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/./include/net/netns/generic.h?id=e69ec487#n46",
+                    "code": [
+                        "static inline void *net_generic(const struct net *net, unsigned int id)",
+                        "{",
+                        "\tstruct net_generic *ng;",
+                        "\tvoid *ptr;",
+                        "",
+                        "\trcu_read_lock();",
+                        "\tng = rcu_dereference(net->gen);",
+                        "\tptr = ng->ptr[id];",
+                        "\trcu_read_unlock();",
+                        "",
+                        "\treturn ptr;",
+                        "}"
+                    ],
+                    "start": 39,
+                    "highlight": 46
+                },
+                {
+                    "file": "net/netfilter/xt_RATEEST.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/netfilter/xt_RATEEST.c?id=e69ec487#n77",
+                    "code": [
+                        "void xt_rateest_put(struct net *net, struct xt_rateest *est)",
+                        "{",
+                        "\tstruct xt_rateest_net *xn = net_generic(net, xt_rateest_id);",
+                        "",
+                        "\tmutex_lock(&xn->hash_lock);",
+                        "\tif (--est->refcnt == 0) {",
+                        "\t\thlist_del(&est->list);",
+                        "\t\tgen_kill_estimator(&est->rate_est);",
+                        "\t\t/*",
+                        "\t\t * gen_estimator est_timer() might access est->lock or bstats,",
+                        "\t\t * wait a RCU grace period before freeing 'est'",
+                        "\t\t */",
+                        "\t\tkfree_rcu(est, rcu);",
+                        "\t}",
+                        "\tmutex_unlock(&xn->hash_lock);",
+                        "}"
+                    ],
+                    "start": 75,
+                    "highlight": 77
+                }
+            ],
+            "ins_idx": 10,
+            "addr": "0xffffffff81efcd1f"
+        },
+        "217": {
+            "name": "xt_rateest_tg_destroy(indirect)",
+            "parent_idx": 137,
+            "source_line": [
+                {
+                    "file": "net/ipv4/netfilter/arp_tables.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/ipv4/netfilter/arp_tables.c?id=e69ec487#n509",
+                    "code": [
+                        "static inline void cleanup_entry(struct arpt_entry *e)",
+                        "{",
+                        "\tstruct xt_tgdtor_param par;",
+                        "\tstruct xt_entry_target *t;",
+                        "",
+                        "\tt = arpt_get_target(e);",
+                        "\tpar.target   = t->u.kernel.target;",
+                        "\tpar.targinfo = t->data;",
+                        "\tpar.family   = NFPROTO_ARP;",
+                        "\tif (par.target->destroy != NULL)",
+                        "\t\tpar.target->destroy(&par);",
+                        "\tmodule_put(par.target->me);",
+                        "\txt_percpu_counter_free(&e->counters);",
+                        "}"
+                    ],
+                    "start": 499,
+                    "highlight": 509
+                },
+                {
+                    "file": "net/ipv4/netfilter/arp_tables.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/ipv4/netfilter/arp_tables.c?id=e69ec487#n587",
+                    "code": [
+                        "/* Checks and translates the user-supplied table segment (held in",
+                        " * newinfo).",
+                        " */",
+                        "static int translate_table(struct net *net,",
+                        "\t\t\t   struct xt_table_info *newinfo,",
+                        "\t\t\t   void *entry0,",
+                        "\t\t\t   const struct arpt_replace *repl)",
+                        "{",
+                        "\tstruct xt_percpu_counter_alloc_state alloc_state = { 0 };",
+                        "\tstruct arpt_entry *iter;",
+                        "\tunsigned int *offsets;",
+                        "\tunsigned int i;",
+                        "\tint ret = 0;",
+                        "",
+                        "\tnewinfo->size = repl->size;",
+                        "\tnewinfo->number = repl->num_entries;",
+                        "",
+                        "\t/* Init all hooks to impossible value. */",
+                        "\tfor (i = 0; i < NF_ARP_NUMHOOKS; i++) {",
+                        "\t\tnewinfo->hook_entry[i] = 0xFFFFFFFF;",
+                        "\t\tnewinfo->underflow[i] = 0xFFFFFFFF;",
+                        "\t}",
+                        "",
+                        "\toffsets = xt_alloc_entry_offsets(newinfo->number);",
+                        "\tif (!offsets)",
+                        "\t\treturn -ENOMEM;",
+                        "\ti = 0;",
+                        "",
+                        "\t/* Walk through entries, checking offsets. */",
+                        "\txt_entry_foreach(iter, entry0, newinfo->size) {",
+                        "\t\tret = check_entry_size_and_hooks(iter, newinfo, entry0,",
+                        "\t\t\t\t\t\t entry0 + repl->size,",
+                        "\t\t\t\t\t\t repl->hook_entry,",
+                        "\t\t\t\t\t\t repl->underflow,",
+                        "\t\t\t\t\t\t repl->valid_hooks);",
+                        "\t\tif (ret != 0)",
+                        "\t\t\tgoto out_free;",
+                        "\t\tif (i < repl->num_entries)",
+                        "\t\t\toffsets[i] = (void *)iter - entry0;",
+                        "\t\t++i;",
+                        "\t\tif (strcmp(arpt_get_target(iter)->u.user.name,",
+                        "\t\t    XT_ERROR_TARGET) == 0)",
+                        "\t\t\t++newinfo->stacksize;",
+                        "\t}",
+                        "",
+                        "\tret = -EINVAL;",
+                        "\tif (i != repl->num_entries)",
+                        "\t\tgoto out_free;",
+                        "",
+                        "\tret = xt_check_table_hooks(newinfo, repl->valid_hooks);",
+                        "\tif (ret)",
+                        "\t\tgoto out_free;",
+                        "",
+                        "\tif (!mark_source_chains(newinfo, repl->valid_hooks, entry0, offsets)) {",
+                        "\t\tret = -ELOOP;",
+                        "\t\tgoto out_free;",
+                        "\t}",
+                        "\tkvfree(offsets);",
+                        "",
+                        "\t/* Finally, each sanity check must pass */",
+                        "\ti = 0;",
+                        "\txt_entry_foreach(iter, entry0, newinfo->size) {",
+                        "\t\tret = find_check_entry(iter, net, repl->name, repl->size,",
+                        "\t\t\t\t       &alloc_state);",
+                        "\t\tif (ret != 0)",
+                        "\t\t\tbreak;",
+                        "\t\t++i;",
+                        "\t}",
+                        "",
+                        "\tif (ret != 0) {",
+                        "\t\txt_entry_foreach(iter, entry0, newinfo->size) {",
+                        "\t\t\tif (i-- == 0)",
+                        "\t\t\t\tbreak;",
+                        "\t\t\tcleanup_entry(iter);",
+                        "\t\t}",
+                        "\t\treturn ret;",
+                        "\t}",
+                        "",
+                        "\treturn ret;",
+                        " out_free:",
+                        "\tkvfree(offsets);",
+                        "\treturn ret;",
+                        "}"
+                    ],
+                    "start": 514,
+                    "highlight": 587
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff81fc2da4"
+        },
+        "137": {
+            "name": "translate_table",
+            "parent_idx": 116,
+            "source_line": [
+                {
+                    "file": "net/ipv4/netfilter/arp_tables.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/ipv4/netfilter/arp_tables.c?id=e69ec487#n981",
+                    "code": [
+                        "static int do_replace(struct net *net, const void __user *user,",
+                        "\t\t      unsigned int len)",
+                        "{",
+                        "\tint ret;",
+                        "\tstruct arpt_replace tmp;",
+                        "\tstruct xt_table_info *newinfo;",
+                        "\tvoid *loc_cpu_entry;",
+                        "\tstruct arpt_entry *iter;",
+                        "",
+                        "\tif (copy_from_user(&tmp, user, sizeof(tmp)) != 0)",
+                        "\t\treturn -EFAULT;",
+                        "",
+                        "\t/* overflow check */",
+                        "\tif (tmp.num_counters >= INT_MAX / sizeof(struct xt_counters))",
+                        "\t\treturn -ENOMEM;",
+                        "\tif (tmp.num_counters == 0)",
+                        "\t\treturn -EINVAL;",
+                        "",
+                        "\ttmp.name[sizeof(tmp.name)-1] = 0;",
+                        "",
+                        "\tnewinfo = xt_alloc_table_info(tmp.size);",
+                        "\tif (!newinfo)",
+                        "\t\treturn -ENOMEM;",
+                        "",
+                        "\tloc_cpu_entry = newinfo->entries;",
+                        "\tif (copy_from_user(loc_cpu_entry, user + sizeof(tmp),",
+                        "\t\t\t   tmp.size) != 0) {",
+                        "\t\tret = -EFAULT;",
+                        "\t\tgoto free_newinfo;",
+                        "\t}",
+                        "",
+                        "\tret = translate_table(net, newinfo, loc_cpu_entry, &tmp);",
+                        "\tif (ret != 0)",
+                        "\t\tgoto free_newinfo;",
+                        "",
+                        "\tret = __do_replace(net, tmp.name, tmp.valid_hooks, newinfo,",
+                        "\t\t\t   tmp.num_counters, tmp.counters);",
+                        "\tif (ret)",
+                        "\t\tgoto free_newinfo_untrans;",
+                        "\treturn 0;",
+                        "",
+                        " free_newinfo_untrans:",
+                        "\txt_entry_foreach(iter, loc_cpu_entry, newinfo->size)",
+                        "\t\tcleanup_entry(iter);",
+                        " free_newinfo:",
+                        "\txt_free_table_info(newinfo);",
+                        "\treturn ret;",
+                        "}"
+                    ],
+                    "start": 950,
+                    "highlight": 981
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff81fc5b3e"
+        },
+        "116": {
+            "name": "do_arpt_set_ctl(indirect)",
+            "parent_idx": 99,
+            "source_line": [
+                {
+                    "file": "net/netfilter/nf_sockopt.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/netfilter/nf_sockopt.c?id=e69ec487#n106",
+                    "code": [
+                        "/* Call get/setsockopt() */",
+                        "static int nf_sockopt(struct sock *sk, u_int8_t pf, int val,",
+                        "\t\t      char __user *opt, int *len, int get)",
+                        "{",
+                        "\tstruct nf_sockopt_ops *ops;",
+                        "\tint ret;",
+                        "",
+                        "\tops = nf_sockopt_find(sk, pf, val, get);",
+                        "\tif (IS_ERR(ops))",
+                        "\t\treturn PTR_ERR(ops);",
+                        "",
+                        "\tif (get)",
+                        "\t\tret = ops->get(sk, val, opt, len);",
+                        "\telse",
+                        "\t\tret = ops->set(sk, val, opt, *len);",
+                        "",
+                        "\tmodule_put(ops->owner);",
+                        "\treturn ret;",
+                        "}"
+                    ],
+                    "start": 92,
+                    "highlight": 106
+                },
+                {
+                    "file": "net/netfilter/nf_sockopt.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/netfilter/nf_sockopt.c?id=e69ec487#n115",
+                    "code": [
+                        "int nf_setsockopt(struct sock *sk, u_int8_t pf, int val, char __user *opt,",
+                        "\t\t  unsigned int len)",
+                        "{",
+                        "\treturn nf_sockopt(sk, pf, val, opt, &len, 0);",
+                        "}"
+                    ],
+                    "start": 112,
+                    "highlight": 115
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff81ea4253"
+        },
+        "99": {
+            "name": "sock_common_setsockopt(indirect)",
+            "parent_idx": 84,
+            "source_line": [
+                {
+                    "file": "net/socket.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/socket.c?id=e69ec487#n2117",
+                    "code": [
+                        "static int __sys_setsockopt(int fd, int level, int optname,",
+                        "\t\t\t    char __user *optval, int optlen)",
+                        "{",
+                        "\tmm_segment_t oldfs = get_fs();",
+                        "\tchar *kernel_optval = NULL;",
+                        "\tint err, fput_needed;",
+                        "\tstruct socket *sock;",
+                        "",
+                        "\tif (optlen < 0)",
+                        "\t\treturn -EINVAL;",
+                        "",
+                        "\tsock = sockfd_lookup_light(fd, &err, &fput_needed);",
+                        "\tif (sock != NULL) {",
+                        "\t\terr = security_socket_setsockopt(sock, level, optname);",
+                        "\t\tif (err)",
+                        "\t\t\tgoto out_put;",
+                        "",
+                        "\t\terr = BPF_CGROUP_RUN_PROG_SETSOCKOPT(sock->sk, &level,",
+                        "\t\t\t\t\t\t     &optname, optval, &optlen,",
+                        "\t\t\t\t\t\t     &kernel_optval);",
+                        "",
+                        "\t\tif (err < 0) {",
+                        "\t\t\tgoto out_put;",
+                        "\t\t} else if (err > 0) {",
+                        "\t\t\terr = 0;",
+                        "\t\t\tgoto out_put;",
+                        "\t\t}",
+                        "",
+                        "\t\tif (kernel_optval) {",
+                        "\t\t\tset_fs(KERNEL_DS);",
+                        "\t\t\toptval = (char __user __force *)kernel_optval;",
+                        "\t\t}",
+                        "",
+                        "\t\tif (level == SOL_SOCKET)",
+                        "\t\t\terr =",
+                        "\t\t\t    sock_setsockopt(sock, level, optname, optval,",
+                        "\t\t\t\t\t    optlen);",
+                        "\t\telse",
+                        "\t\t\terr =",
+                        "\t\t\t    sock->ops->setsockopt(sock, level, optname, optval,",
+                        "\t\t\t\t\t\t  optlen);",
+                        "",
+                        "\t\tif (kernel_optval) {",
+                        "\t\t\tset_fs(oldfs);",
+                        "\t\t\tkfree(kernel_optval);",
+                        "\t\t}",
+                        "out_put:",
+                        "\t\tfput_light(sock->file, fput_needed);",
+                        "\t}",
+                        "\treturn err;",
+                        "}"
+                    ],
+                    "start": 2078,
+                    "highlight": 2117
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff81dd2ed6"
+        },
+        "84": {
+            "name": "__sys_setsockopt",
+            "parent_idx": 80,
+            "source_line": [
+                {
+                    "file": "net/socket.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/socket.c?id=e69ec487#n2133",
+                    "code": [
+                        "SYSCALL_DEFINE5(setsockopt, int, fd, int, level, int, optname,",
+                        "\t\tchar __user *, optval, int, optlen)",
+                        "{",
+                        "\treturn __sys_setsockopt(fd, level, optname, optval, optlen);",
+                        "}"
+                    ],
+                    "start": 2130,
+                    "highlight": 2133
+                },
+                {
+                    "file": "net/socket.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/socket.c?id=e69ec487#n2130",
+                    "code": [
+                        "static int __sys_setsockopt(int fd, int level, int optname,",
+                        "\t\t\t    char __user *optval, int optlen)",
+                        "{",
+                        "\tmm_segment_t oldfs = get_fs();",
+                        "\tchar *kernel_optval = NULL;",
+                        "\tint err, fput_needed;",
+                        "\tstruct socket *sock;",
+                        "",
+                        "\tif (optlen < 0)",
+                        "\t\treturn -EINVAL;",
+                        "",
+                        "\tsock = sockfd_lookup_light(fd, &err, &fput_needed);",
+                        "\tif (sock != NULL) {",
+                        "\t\terr = security_socket_setsockopt(sock, level, optname);",
+                        "\t\tif (err)",
+                        "\t\t\tgoto out_put;",
+                        "",
+                        "\t\terr = BPF_CGROUP_RUN_PROG_SETSOCKOPT(sock->sk, &level,",
+                        "\t\t\t\t\t\t     &optname, optval, &optlen,",
+                        "\t\t\t\t\t\t     &kernel_optval);",
+                        "",
+                        "\t\tif (err < 0) {",
+                        "\t\t\tgoto out_put;",
+                        "\t\t} else if (err > 0) {",
+                        "\t\t\terr = 0;",
+                        "\t\t\tgoto out_put;",
+                        "\t\t}",
+                        "",
+                        "\t\tif (kernel_optval) {",
+                        "\t\t\tset_fs(KERNEL_DS);",
+                        "\t\t\toptval = (char __user __force *)kernel_optval;",
+                        "\t\t}",
+                        "",
+                        "\t\tif (level == SOL_SOCKET)",
+                        "\t\t\terr =",
+                        "\t\t\t    sock_setsockopt(sock, level, optname, optval,",
+                        "\t\t\t\t\t    optlen);",
+                        "\t\telse",
+                        "\t\t\terr =",
+                        "\t\t\t    sock->ops->setsockopt(sock, level, optname, optval,",
+                        "\t\t\t\t\t\t  optlen);",
+                        "",
+                        "\t\tif (kernel_optval) {",
+                        "\t\t\tset_fs(oldfs);",
+                        "\t\t\tkfree(kernel_optval);",
+                        "\t\t}",
+                        "out_put:",
+                        "\t\tfput_light(sock->file, fput_needed);",
+                        "\t}",
+                        "\treturn err;",
+                        "}",
+                        "",
+                        "SYSCALL_DEFINE5(setsockopt, int, fd, int, level, int, optname,",
+                        "\t\tchar __user *, optval, int, optlen)",
+                        "{",
+                        "\treturn __sys_setsockopt(fd, level, optname, optval, optlen);",
+                        "}"
+                    ],
+                    "start": 2078,
+                    "highlight": 2130
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff81dd2fc7"
+        },
+        "80": {
+            "name": "__x64_sys_setsockopt(indirect)",
+            "parent_idx": 77,
+            "source_line": [
+                {
+                    "file": "arch/x86/entry/common.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/entry/common.c?id=e69ec487#n294",
+                    "code": [
+                        "#ifdef CONFIG_X86_64",
+                        "__visible void do_syscall_64(unsigned long nr, struct pt_regs *regs)",
+                        "{",
+                        "\tstruct thread_info *ti;",
+                        "",
+                        "\tenter_from_user_mode();",
+                        "\tlocal_irq_enable();",
+                        "\tti = current_thread_info();",
+                        "\tif (READ_ONCE(ti->flags) & _TIF_WORK_SYSCALL_ENTRY)",
+                        "\t\tnr = syscall_trace_enter(regs);",
+                        "",
+                        "\tif (likely(nr < NR_syscalls)) {",
+                        "\t\tnr = array_index_nospec(nr, NR_syscalls);",
+                        "\t\tregs->ax = sys_call_table[nr](regs);",
+                        "#ifdef CONFIG_X86_X32_ABI",
+                        "\t} else if (likely((nr & __X32_SYSCALL_BIT) &&",
+                        "\t\t\t  (nr & ~__X32_SYSCALL_BIT) < X32_NR_syscalls)) {",
+                        "\t\tnr = array_index_nospec(nr & ~__X32_SYSCALL_BIT,",
+                        "\t\t\t\t\tX32_NR_syscalls);",
+                        "\t\tregs->ax = x32_sys_call_table[nr](regs);",
+                        "#endif",
+                        "\t}",
+                        "",
+                        "\tsyscall_return_slowpath(regs);",
+                        "}"
+                    ],
+                    "start": 281,
+                    "highlight": 294
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff81003f35"
+        },
+        "77": {
+            "name": "do_syscall_64",
+            "parent_idx": 71,
+            "source_line": [
+                {
+                    "file": "arch/x86/entry/entry_64.S",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/entry/entry_64.S?id=e69ec487#n175",
+                    "code": [
+                        "SYM_CODE_START(entry_SYSCALL_64)",
+                        "\tUNWIND_HINT_EMPTY",
+                        "\t/*",
+                        "\t * Interrupts are off on entry.",
+                        "\t * We do not frame this tiny irq-off block with TRACE_IRQS_OFF/ON,",
+                        "\t * it is too small to ever cause noticeable irq latency.",
+                        "\t */",
+                        "",
+                        "\tswapgs",
+                        "\t/* tss.sp2 is scratch space. */",
+                        "\tmovq\t%rsp, PER_CPU_VAR(cpu_tss_rw + TSS_sp2)",
+                        "\tSWITCH_TO_KERNEL_CR3 scratch_reg=%rsp",
+                        "\tmovq\tPER_CPU_VAR(cpu_current_top_of_stack), %rsp",
+                        "",
+                        "\t/* Construct struct pt_regs on stack */",
+                        "\tpushq\t$__USER_DS\t\t\t\t/* pt_regs->ss */",
+                        "\tpushq\tPER_CPU_VAR(cpu_tss_rw + TSS_sp2)\t/* pt_regs->sp */",
+                        "\tpushq\t%r11\t\t\t\t\t/* pt_regs->flags */",
+                        "\tpushq\t$__USER_CS\t\t\t\t/* pt_regs->cs */",
+                        "\tpushq\t%rcx\t\t\t\t\t/* pt_regs->ip */",
+                        "SYM_INNER_LABEL(entry_SYSCALL_64_after_hwframe, SYM_L_GLOBAL)",
+                        "\tpushq\t%rax\t\t\t\t\t/* pt_regs->orig_ax */",
+                        "",
+                        "\tPUSH_AND_CLEAR_REGS rax=$-ENOSYS",
+                        "",
+                        "\tTRACE_IRQS_OFF",
+                        "",
+                        "\t/* IRQs are off. */",
+                        "\tmovq\t%rax, %rdi",
+                        "\tmovq\t%rsp, %rsi",
+                        "\tcall\tdo_syscall_64\t\t/* returns with IRQs disabled */",
+                        "",
+                        "\tTRACE_IRQS_IRETQ\t\t/* we're about to change IF */",
+                        "",
+                        "\t/*",
+                        "\t * Try to use SYSRET instead of IRET if we're returning to",
+                        "\t * a completely clean 64-bit userspace context.  If we're not,",
+                        "\t * go to the slow exit path.",
+                        "\t */",
+                        "\tmovq\tRCX(%rsp), %rcx",
+                        "\tmovq\tRIP(%rsp), %r11",
+                        "",
+                        "\tcmpq\t%rcx, %r11\t/* SYSRET requires RCX == RIP */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/*",
+                        "\t * On Intel CPUs, SYSRET with non-canonical RCX/RIP will #GP",
+                        "\t * in kernel space.  This essentially lets the user take over",
+                        "\t * the kernel, since userspace controls RSP.",
+                        "\t *",
+                        "\t * If width of \"canonical tail\" ever becomes variable, this will need",
+                        "\t * to be updated to remain correct on both old and new CPUs.",
+                        "\t *",
+                        "\t * Change top bits to match most significant bit (47th or 56th bit",
+                        "\t * depending on paging mode) in the address.",
+                        "\t */",
+                        "#ifdef CONFIG_X86_5LEVEL",
+                        "\tALTERNATIVE \"shl $(64 - 48), %rcx; sar $(64 - 48), %rcx\", \\",
+                        "\t\t\"shl $(64 - 57), %rcx; sar $(64 - 57), %rcx\", X86_FEATURE_LA57",
+                        "#else",
+                        "\tshl\t$(64 - (__VIRTUAL_MASK_SHIFT+1)), %rcx",
+                        "\tsar\t$(64 - (__VIRTUAL_MASK_SHIFT+1)), %rcx",
+                        "#endif",
+                        "",
+                        "\t/* If this changed %rcx, it was not canonical */",
+                        "\tcmpq\t%rcx, %r11",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\tcmpq\t$__USER_CS, CS(%rsp)\t\t/* CS must match SYSRET */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\tmovq\tR11(%rsp), %r11",
+                        "\tcmpq\t%r11, EFLAGS(%rsp)\t\t/* R11 == RFLAGS */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/*",
+                        "\t * SYSCALL clears RF when it saves RFLAGS in R11 and SYSRET cannot",
+                        "\t * restore RF properly. If the slowpath sets it for whatever reason, we",
+                        "\t * need to restore it correctly.",
+                        "\t *",
+                        "\t * SYSRET can restore TF, but unlike IRET, restoring TF results in a",
+                        "\t * trap from userspace immediately after SYSRET.  This would cause an",
+                        "\t * infinite loop whenever #DB happens with register state that satisfies",
+                        "\t * the opportunistic SYSRET conditions.  For example, single-stepping",
+                        "\t * this user code:",
+                        "\t *",
+                        "\t *           movq\t$stuck_here, %rcx",
+                        "\t *           pushfq",
+                        "\t *           popq %r11",
+                        "\t *   stuck_here:",
+                        "\t *",
+                        "\t * would never get past 'stuck_here'.",
+                        "\t */",
+                        "\ttestq\t$(X86_EFLAGS_RF|X86_EFLAGS_TF), %r11",
+                        "\tjnz\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/* nothing to check for RSP */",
+                        "",
+                        "\tcmpq\t$__USER_DS, SS(%rsp)\t\t/* SS must match SYSRET */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/*",
+                        "\t * We win! This label is here just for ease of understanding",
+                        "\t * perf profiles. Nothing jumps here.",
+                        "\t */",
+                        "syscall_return_via_sysret:",
+                        "\t/* rcx and r11 are already restored (see code above) */",
+                        "\tUNWIND_HINT_EMPTY",
+                        "\tPOP_REGS pop_rdi=0 skip_r11rcx=1",
+                        "",
+                        "\t/*",
+                        "\t * Now all regs are restored except RSP and RDI.",
+                        "\t * Save old stack pointer and switch to trampoline stack.",
+                        "\t */",
+                        "\tmovq\t%rsp, %rdi",
+                        "\tmovq\tPER_CPU_VAR(cpu_tss_rw + TSS_sp0), %rsp",
+                        "",
+                        "\tpushq\tRSP-RDI(%rdi)\t/* RSP */",
+                        "\tpushq\t(%rdi)\t\t/* RDI */",
+                        "",
+                        "\t/*",
+                        "\t * We are on the trampoline stack.  All regs except RDI are live.",
+                        "\t * We can do future final exit work right here.",
+                        "\t */",
+                        "\tSTACKLEAK_ERASE_NOCLOBBER",
+                        "",
+                        "\tSWITCH_TO_USER_CR3_STACK scratch_reg=%rdi",
+                        "",
+                        "\tpopq\t%rdi",
+                        "\tpopq\t%rsp",
+                        "\tUSERGS_SYSRET64",
+                        "SYM_CODE_END(entry_SYSCALL_64)"
+                    ],
+                    "start": 145,
+                    "highlight": 175
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff82400077"
+        },
+        "71": {
+            "name": "52_syscall_3",
+            "parent_idx": 1,
+            "source_line": [],
+            "ins_idx": 0,
+            "addr": "0x0"
+        },
+        "1": {
+            "name": "PoC",
+            "parent_idx": 0,
+            "source_line": [],
+            "ins_idx": 0,
+            "addr": "0x0"
+        },
+        "222": {
+            "name": "+0x1e",
+            "parent_idx": 217,
+            "source_line": [
+                {
+                    "file": "./include/linux/compiler.h",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/./include/linux/compiler.h?id=e69ec487#n199",
+                    "code": [
+                        "static __always_inline",
+                        "void __read_once_size(const volatile void *p, void *res, int size)",
+                        "{",
+                        "\t__READ_ONCE_SIZE;",
+                        "}"
+                    ],
+                    "start": 196,
+                    "highlight": 199
+                },
+                {
+                    "file": "./include/net/netns/generic.h",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/./include/net/netns/generic.h?id=e69ec487#n45",
+                    "code": [
+                        "static inline void *net_generic(const struct net *net, unsigned int id)",
+                        "{",
+                        "\tstruct net_generic *ng;",
+                        "\tvoid *ptr;",
+                        "",
+                        "\trcu_read_lock();",
+                        "\tng = rcu_dereference(net->gen);",
+                        "\tptr = ng->ptr[id];",
+                        "\trcu_read_unlock();",
+                        "",
+                        "\treturn ptr;",
+                        "}"
+                    ],
+                    "start": 39,
+                    "highlight": 45
+                },
+                {
+                    "file": "net/netfilter/xt_RATEEST.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/netfilter/xt_RATEEST.c?id=e69ec487#n77",
+                    "code": [
+                        "void xt_rateest_put(struct net *net, struct xt_rateest *est)",
+                        "{",
+                        "\tstruct xt_rateest_net *xn = net_generic(net, xt_rateest_id);",
+                        "",
+                        "\tmutex_lock(&xn->hash_lock);",
+                        "\tif (--est->refcnt == 0) {",
+                        "\t\thlist_del(&est->list);",
+                        "\t\tgen_kill_estimator(&est->rate_est);",
+                        "\t\t/*",
+                        "\t\t * gen_estimator est_timer() might access est->lock or bstats,",
+                        "\t\t * wait a RCU grace period before freeing 'est'",
+                        "\t\t */",
+                        "\t\tkfree_rcu(est, rcu);",
+                        "\t}",
+                        "\tmutex_unlock(&xn->hash_lock);",
+                        "}"
+                    ],
+                    "start": 75,
+                    "highlight": 77
+                }
+            ],
+            "ins_idx": 22,
+            "addr": "0xffffffff81efcd0e"
+        },
+        "220": {
+            "name": "+0x4",
+            "parent_idx": 217,
+            "source_line": [
+                {
+                    "file": "net/netfilter/xt_RATEEST.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/netfilter/xt_RATEEST.c?id=e69ec487#n76",
+                    "code": [
+                        "void xt_rateest_put(struct net *net, struct xt_rateest *est)",
+                        "{",
+                        "\tstruct xt_rateest_net *xn = net_generic(net, xt_rateest_id);",
+                        "",
+                        "\tmutex_lock(&xn->hash_lock);",
+                        "\tif (--est->refcnt == 0) {",
+                        "\t\thlist_del(&est->list);",
+                        "\t\tgen_kill_estimator(&est->rate_est);",
+                        "\t\t/*",
+                        "\t\t * gen_estimator est_timer() might access est->lock or bstats,",
+                        "\t\t * wait a RCU grace period before freeing 'est'",
+                        "\t\t */",
+                        "\t\tkfree_rcu(est, rcu);",
+                        "\t}",
+                        "\tmutex_unlock(&xn->hash_lock);",
+                        "}"
+                    ],
+                    "start": 75,
+                    "highlight": 76
+                }
+            ],
+            "ins_idx": 36,
+            "addr": "0xffffffff81efccf4"
+        },
+        "219": {
+            "name": "+0x27",
+            "parent_idx": 217,
+            "source_line": [
+                {
+                    "file": "net/netfilter/xt_RATEEST.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/netfilter/xt_RATEEST.c?id=e69ec487#n175",
+                    "code": [
+                        "static void xt_rateest_tg_destroy(const struct xt_tgdtor_param *par)",
+                        "{",
+                        "\tstruct xt_rateest_target_info *info = par->targinfo;",
+                        "",
+                        "\txt_rateest_put(par->net, info->est);",
+                        "}"
+                    ],
+                    "start": 171,
+                    "highlight": 175
+                }
+            ],
+            "ins_idx": 52,
+            "addr": "0xffffffff81efcde7"
+        },
+        "218": {
+            "name": "+0x2",
+            "parent_idx": 217,
+            "source_line": [
+                {
+                    "file": "net/netfilter/xt_RATEEST.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/netfilter/xt_RATEEST.c?id=e69ec487#n172",
+                    "code": [
+                        "static void xt_rateest_tg_destroy(const struct xt_tgdtor_param *par)",
+                        "{",
+                        "\tstruct xt_rateest_target_info *info = par->targinfo;",
+                        "",
+                        "\txt_rateest_put(par->net, info->est);",
+                        "}"
+                    ],
+                    "start": 171,
+                    "highlight": 172
+                }
+            ],
+            "ins_idx": 67,
+            "addr": "0xffffffff81efcdc2"
+        },
+        "216": {
+            "name": "+0x861",
+            "parent_idx": 137,
+            "source_line": [
+                {
+                    "file": "net/ipv4/netfilter/arp_tables.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/ipv4/netfilter/arp_tables.c?id=e69ec487#n509",
+                    "code": [
+                        "static inline void cleanup_entry(struct arpt_entry *e)",
+                        "{",
+                        "\tstruct xt_tgdtor_param par;",
+                        "\tstruct xt_entry_target *t;",
+                        "",
+                        "\tt = arpt_get_target(e);",
+                        "\tpar.target   = t->u.kernel.target;",
+                        "\tpar.targinfo = t->data;",
+                        "\tpar.family   = NFPROTO_ARP;",
+                        "\tif (par.target->destroy != NULL)",
+                        "\t\tpar.target->destroy(&par);",
+                        "\tmodule_put(par.target->me);",
+                        "\txt_percpu_counter_free(&e->counters);",
+                        "}"
+                    ],
+                    "start": 499,
+                    "highlight": 509
+                },
+                {
+                    "file": "net/ipv4/netfilter/arp_tables.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/ipv4/netfilter/arp_tables.c?id=e69ec487#n587",
+                    "code": [
+                        "/* Checks and translates the user-supplied table segment (held in",
+                        " * newinfo).",
+                        " */",
+                        "static int translate_table(struct net *net,",
+                        "\t\t\t   struct xt_table_info *newinfo,",
+                        "\t\t\t   void *entry0,",
+                        "\t\t\t   const struct arpt_replace *repl)",
+                        "{",
+                        "\tstruct xt_percpu_counter_alloc_state alloc_state = { 0 };",
+                        "\tstruct arpt_entry *iter;",
+                        "\tunsigned int *offsets;",
+                        "\tunsigned int i;",
+                        "\tint ret = 0;",
+                        "",
+                        "\tnewinfo->size = repl->size;",
+                        "\tnewinfo->number = repl->num_entries;",
+                        "",
+                        "\t/* Init all hooks to impossible value. */",
+                        "\tfor (i = 0; i < NF_ARP_NUMHOOKS; i++) {",
+                        "\t\tnewinfo->hook_entry[i] = 0xFFFFFFFF;",
+                        "\t\tnewinfo->underflow[i] = 0xFFFFFFFF;",
+                        "\t}",
+                        "",
+                        "\toffsets = xt_alloc_entry_offsets(newinfo->number);",
+                        "\tif (!offsets)",
+                        "\t\treturn -ENOMEM;",
+                        "\ti = 0;",
+                        "",
+                        "\t/* Walk through entries, checking offsets. */",
+                        "\txt_entry_foreach(iter, entry0, newinfo->size) {",
+                        "\t\tret = check_entry_size_and_hooks(iter, newinfo, entry0,",
+                        "\t\t\t\t\t\t entry0 + repl->size,",
+                        "\t\t\t\t\t\t repl->hook_entry,",
+                        "\t\t\t\t\t\t repl->underflow,",
+                        "\t\t\t\t\t\t repl->valid_hooks);",
+                        "\t\tif (ret != 0)",
+                        "\t\t\tgoto out_free;",
+                        "\t\tif (i < repl->num_entries)",
+                        "\t\t\toffsets[i] = (void *)iter - entry0;",
+                        "\t\t++i;",
+                        "\t\tif (strcmp(arpt_get_target(iter)->u.user.name,",
+                        "\t\t    XT_ERROR_TARGET) == 0)",
+                        "\t\t\t++newinfo->stacksize;",
+                        "\t}",
+                        "",
+                        "\tret = -EINVAL;",
+                        "\tif (i != repl->num_entries)",
+                        "\t\tgoto out_free;",
+                        "",
+                        "\tret = xt_check_table_hooks(newinfo, repl->valid_hooks);",
+                        "\tif (ret)",
+                        "\t\tgoto out_free;",
+                        "",
+                        "\tif (!mark_source_chains(newinfo, repl->valid_hooks, entry0, offsets)) {",
+                        "\t\tret = -ELOOP;",
+                        "\t\tgoto out_free;",
+                        "\t}",
+                        "\tkvfree(offsets);",
+                        "",
+                        "\t/* Finally, each sanity check must pass */",
+                        "\ti = 0;",
+                        "\txt_entry_foreach(iter, entry0, newinfo->size) {",
+                        "\t\tret = find_check_entry(iter, net, repl->name, repl->size,",
+                        "\t\t\t\t       &alloc_state);",
+                        "\t\tif (ret != 0)",
+                        "\t\t\tbreak;",
+                        "\t\t++i;",
+                        "\t}",
+                        "",
+                        "\tif (ret != 0) {",
+                        "\t\txt_entry_foreach(iter, entry0, newinfo->size) {",
+                        "\t\t\tif (i-- == 0)",
+                        "\t\t\t\tbreak;",
+                        "\t\t\tcleanup_entry(iter);",
+                        "\t\t}",
+                        "\t\treturn ret;",
+                        "\t}",
+                        "",
+                        "\treturn ret;",
+                        " out_free:",
+                        "\tkvfree(offsets);",
+                        "\treturn ret;",
+                        "}"
+                    ],
+                    "start": 514,
+                    "highlight": 587
+                }
+            ],
+            "ins_idx": 80,
+            "addr": "0xffffffff81fc2da1"
+        },
+        "215": {
+            "name": "+0x7fa",
+            "parent_idx": 137,
+            "source_line": [
+                {
+                    "file": "net/ipv4/netfilter/arp_tables.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/ipv4/netfilter/arp_tables.c?id=e69ec487#n509",
+                    "code": [
+                        "static inline void cleanup_entry(struct arpt_entry *e)",
+                        "{",
+                        "\tstruct xt_tgdtor_param par;",
+                        "\tstruct xt_entry_target *t;",
+                        "",
+                        "\tt = arpt_get_target(e);",
+                        "\tpar.target   = t->u.kernel.target;",
+                        "\tpar.targinfo = t->data;",
+                        "\tpar.family   = NFPROTO_ARP;",
+                        "\tif (par.target->destroy != NULL)",
+                        "\t\tpar.target->destroy(&par);",
+                        "\tmodule_put(par.target->me);",
+                        "\txt_percpu_counter_free(&e->counters);",
+                        "}"
+                    ],
+                    "start": 499,
+                    "highlight": 509
+                },
+                {
+                    "file": "net/ipv4/netfilter/arp_tables.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/ipv4/netfilter/arp_tables.c?id=e69ec487#n587",
+                    "code": [
+                        "/* Checks and translates the user-supplied table segment (held in",
+                        " * newinfo).",
+                        " */",
+                        "static int translate_table(struct net *net,",
+                        "\t\t\t   struct xt_table_info *newinfo,",
+                        "\t\t\t   void *entry0,",
+                        "\t\t\t   const struct arpt_replace *repl)",
+                        "{",
+                        "\tstruct xt_percpu_counter_alloc_state alloc_state = { 0 };",
+                        "\tstruct arpt_entry *iter;",
+                        "\tunsigned int *offsets;",
+                        "\tunsigned int i;",
+                        "\tint ret = 0;",
+                        "",
+                        "\tnewinfo->size = repl->size;",
+                        "\tnewinfo->number = repl->num_entries;",
+                        "",
+                        "\t/* Init all hooks to impossible value. */",
+                        "\tfor (i = 0; i < NF_ARP_NUMHOOKS; i++) {",
+                        "\t\tnewinfo->hook_entry[i] = 0xFFFFFFFF;",
+                        "\t\tnewinfo->underflow[i] = 0xFFFFFFFF;",
+                        "\t}",
+                        "",
+                        "\toffsets = xt_alloc_entry_offsets(newinfo->number);",
+                        "\tif (!offsets)",
+                        "\t\treturn -ENOMEM;",
+                        "\ti = 0;",
+                        "",
+                        "\t/* Walk through entries, checking offsets. */",
+                        "\txt_entry_foreach(iter, entry0, newinfo->size) {",
+                        "\t\tret = check_entry_size_and_hooks(iter, newinfo, entry0,",
+                        "\t\t\t\t\t\t entry0 + repl->size,",
+                        "\t\t\t\t\t\t repl->hook_entry,",
+                        "\t\t\t\t\t\t repl->underflow,",
+                        "\t\t\t\t\t\t repl->valid_hooks);",
+                        "\t\tif (ret != 0)",
+                        "\t\t\tgoto out_free;",
+                        "\t\tif (i < repl->num_entries)",
+                        "\t\t\toffsets[i] = (void *)iter - entry0;",
+                        "\t\t++i;",
+                        "\t\tif (strcmp(arpt_get_target(iter)->u.user.name,",
+                        "\t\t    XT_ERROR_TARGET) == 0)",
+                        "\t\t\t++newinfo->stacksize;",
+                        "\t}",
+                        "",
+                        "\tret = -EINVAL;",
+                        "\tif (i != repl->num_entries)",
+                        "\t\tgoto out_free;",
+                        "",
+                        "\tret = xt_check_table_hooks(newinfo, repl->valid_hooks);",
+                        "\tif (ret)",
+                        "\t\tgoto out_free;",
+                        "",
+                        "\tif (!mark_source_chains(newinfo, repl->valid_hooks, entry0, offsets)) {",
+                        "\t\tret = -ELOOP;",
+                        "\t\tgoto out_free;",
+                        "\t}",
+                        "\tkvfree(offsets);",
+                        "",
+                        "\t/* Finally, each sanity check must pass */",
+                        "\ti = 0;",
+                        "\txt_entry_foreach(iter, entry0, newinfo->size) {",
+                        "\t\tret = find_check_entry(iter, net, repl->name, repl->size,",
+                        "\t\t\t\t       &alloc_state);",
+                        "\t\tif (ret != 0)",
+                        "\t\t\tbreak;",
+                        "\t\t++i;",
+                        "\t}",
+                        "",
+                        "\tif (ret != 0) {",
+                        "\t\txt_entry_foreach(iter, entry0, newinfo->size) {",
+                        "\t\t\tif (i-- == 0)",
+                        "\t\t\t\tbreak;",
+                        "\t\t\tcleanup_entry(iter);",
+                        "\t\t}",
+                        "\t\treturn ret;",
+                        "\t}",
+                        "",
+                        "\treturn ret;",
+                        " out_free:",
+                        "\tkvfree(offsets);",
+                        "\treturn ret;",
+                        "}"
+                    ],
+                    "start": 514,
+                    "highlight": 587
+                }
+            ],
+            "ins_idx": 91,
+            "addr": "0xffffffff81fc2d3a"
+        }
+    },
+    "ins": {
+        "10": {
+            "name": "mov r12, qword ptr [r12 + rbp*8]",
+            "desc": "Invalid Memory Access\nInvalid Base Address 0xc7489d73011714b2",
+            "call_idx": 223,
+            "inputs": [
+                357,
+                358,
+                359
+            ],
+            "outputs": [
+                360
+            ]
+        },
+        "22": {
+            "name": "mov r12, qword ptr [r12 + 0xbb0]",
+            "desc": "Source of base address MEMREAD 0xc7489d7301171442",
+            "call_idx": 222,
+            "inputs": [
+                354,
+                355
+            ],
+            "outputs": [
+                356
+            ]
+        },
+        "36": {
+            "name": "mov r12, rdi",
+            "desc": "",
+            "call_idx": 220,
+            "inputs": [
+                350
+            ],
+            "outputs": [
+                351
+            ]
+        },
+        "52": {
+            "name": "mov rdi, qword ptr [rbx]",
+            "desc": "Stack Use Before Initialization",
+            "call_idx": 219,
+            "inputs": [
+                347,
+                348
+            ],
+            "outputs": [
+                349
+            ]
+        },
+        "67": {
+            "name": "mov rbx, rdi",
+            "desc": "",
+            "call_idx": 218,
+            "inputs": [
+                345
+            ],
+            "outputs": [
+                346
+            ]
+        },
+        "80": {
+            "name": "mov rdi, r15",
+            "desc": "",
+            "call_idx": 216,
+            "inputs": [
+                343
+            ],
+            "outputs": [
+                344
+            ]
+        },
+        "91": {
+            "name": "lea r15, qword ptr [rsp + 0xd0]",
+            "desc": "",
+            "call_idx": 215,
+            "inputs": [
+                341
+            ],
+            "outputs": [
+                342
+            ]
+        }
+    },
+    "data": {
+        "357": {
+            "name": "RBP",
+            "ins_idx": 10,
+            "value": "0xe",
+            "sources": []
+        },
+        "358": {
+            "name": "R12",
+            "ins_idx": 10,
+            "value": "0xc7489d7301171442",
+            "sources": []
+        },
+        "359": {
+            "name": "[0xc7489d73011714b2]",
+            "ins_idx": 10,
+            "value": "0x0",
+            "sources": []
+        },
+        "360": {
+            "name": "R12",
+            "ins_idx": 10,
+            "value": "0x0",
+            "sources": []
+        },
+        "354": {
+            "name": "R12",
+            "ins_idx": 22,
+            "value": "0xffffffff8240168a",
+            "sources": []
+        },
+        "355": {
+            "name": "[0xffffffff8240223a]",
+            "ins_idx": 22,
+            "value": "0xc7489d7301171442",
+            "sources": []
+        },
+        "356": {
+            "name": "R12",
+            "ins_idx": 22,
+            "value": "0xc7489d7301171442",
+            "sources": [
+                358
+            ]
+        },
+        "350": {
+            "name": "RDI",
+            "ins_idx": 36,
+            "value": "0xffffffff8240168a",
+            "sources": []
+        },
+        "351": {
+            "name": "R12",
+            "ins_idx": 36,
+            "value": "0xffffffff8240168a",
+            "sources": [
+                354
+            ]
+        },
+        "347": {
+            "name": "RBX",
+            "ins_idx": 52,
+            "value": "0xffff8881e6c4fbf0",
+            "sources": []
+        },
+        "348": {
+            "name": "[0xffff8881e6c4fbf0]",
+            "ins_idx": 52,
+            "value": "0xffffffff8240168a",
+            "sources": []
+        },
+        "349": {
+            "name": "RDI",
+            "ins_idx": 52,
+            "value": "0xffffffff8240168a",
+            "sources": [
+                350
+            ]
+        },
+        "345": {
+            "name": "RDI",
+            "ins_idx": 67,
+            "value": "0xffff8881e6c4fbf0",
+            "sources": []
+        },
+        "346": {
+            "name": "RBX",
+            "ins_idx": 67,
+            "value": "0xffff8881e6c4fbf0",
+            "sources": [
+                347
+            ]
+        },
+        "343": {
+            "name": "R15",
+            "ins_idx": 80,
+            "value": "0xffff8881e6c4fbf0",
+            "sources": []
+        },
+        "344": {
+            "name": "RDI",
+            "ins_idx": 80,
+            "value": "0xffff8881e6c4fbf0",
+            "sources": [
+                345
+            ]
+        },
+        "341": {
+            "name": "RSP",
+            "ins_idx": 91,
+            "value": "0xffff8881e6c4fb20",
+            "sources": []
+        },
+        "342": {
+            "name": "R15",
+            "ins_idx": 91,
+            "value": "0xffff8881e6c4fbf0",
+            "sources": [
+                343
+            ]
+        }
+    },
+    "chain": {
+        "10": [
+            22
+        ],
+        "22": [
+            36
+        ],
+        "36": [
+            52
+        ],
+        "52": [
+            67
+        ],
+        "67": [
+            80
+        ],
+        "80": [
+            91
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+diff --git a/kernel/bpf/btf.c b/kernel/bpf/btf.c
+index cad09858a5f2..de71c5de5d5c 100644
+--- a/kernel/bpf/btf.c
++++ b/kernel/bpf/btf.c
+@@ -589,7 +589,7 @@ const char *btf_name_by_offset(const struct btf *btf, u32 offset)
+ 	return NULL;
+ }
+ 
+-const struct btf_type *btf_type_by_id(const struct btf *btf, u32 type_id)
++noinline const struct btf_type *btf_type_by_id(const struct btf *btf, u32 type_id)
+ {
+ 	if (type_id > btf->nr_types)
+ 		return NULL;

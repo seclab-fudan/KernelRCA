@@ -1,0 +1,3 @@
+[submodule "s2e/source/s2e-linux-kernel/linux"]
+	path = s2e/source/s2e-linux-kernel/linux
+	url = git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git

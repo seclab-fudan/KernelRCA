@@ -1,0 +1,295 @@
+import os
+import sys
+
+import lief
+import angr
+
+import logging
+from capstone import x86
+
+
+from SetupConfig import SetupConfig
+from syscall_table_h_generator import parse_syscall_from_source, generate_syscall_table_h
+from generate_functiontracer_config import generate_functiontracer_config
+from configure_meta_projects import generate_meta_projects
+
+class Kallsyms:
+    def __init__(self, kallsyms_path):
+        self.name_to_addr = {}
+        self.addr_to_name = {}
+
+        with open(kallsyms_path, 'r') as f:
+            for line in f:
+                line = line.strip().split(' ')
+                try:
+                    addr = int('0x'+line[0], 16)
+                except: # on cve-18344 we find: (null) A irq_stack_union, just skip
+                    continue
+                name = line[-1]
+                self.name_to_addr[name] = addr
+                self.addr_to_name[addr] = name
+
+    def get_function_name(self, addr):
+        if addr in self.addr_to_name:
+            return self.addr_to_name[addr]
+        return ''
+
+class KernelImage:
+    def __init__(self, vmlinux_path):
+        self.proj = angr.Project(vmlinux_path)
+
+    def get_ins_by_addr(self, addr):
+        block = self.proj.factory.block(addr, 0x20)
+        try:
+            ins = block.capstone.insns[0]
+        except Exception as e:
+            # 走到这里出现反汇编错误
+            # 要么是kernel已经dead，走到了尽头
+            # 要么是vmlinux没有正确patch，runtime的kernel text要用gdb另抓
+            # 还有一种可能，碰上了s2e的特殊指令
+            # 简单起见，反汇编失败的直接认为下一条指令一定连续
+            logging.warn(f'Invalid instruction at {hex(addr)}')
+            return None
+        return ins
+
+    def _read_reg(self, ins, state, reg_id):
+        if reg_id == x86.X86_REG_RIP:
+            return state['IP']
+        elif reg_id == x86.X86_REG_INVALID:
+            return 0
+        else:
+            name = ins.reg_name(reg_id).upper()
+            return state['Context'][name]
+
+    def get_possible_next_pc(self, state, stack=None):
+        current_pc = state['IP']
+        ins = self.get_ins_by_addr(current_pc)
+
+        # 遇到了无法解析的指令，直接假设它的下一条一定连续，不会折叠，也不会中断
+        if ins is None:
+            return None
+
+        target_pcs = []
+        # 一般来说，下一条指令的位置是当前PC加上当前指令长度
+        regular_next_pc = current_pc + ins.size
+        target_pcs.append(regular_next_pc)
+
+        # REP系列指令的下一条可以是自己
+        if ins.mnemonic.startswith('rep'):
+            target_pcs.append(current_pc)
+
+        # 对跳转指令，尽量计算其目标地址
+        if ins.group(x86.X86_GRP_JUMP):
+            assert len(ins.operands) == 1
+            opr = ins.operands[0]
+            if opr.type == x86.X86_OP_IMM:
+                jump_target_pc = 0xFFFFFFFFFFFFFFFF & opr.imm
+            elif opr.type == x86.X86_OP_REG:
+                jump_target_pc = self._read_reg(ins, state, opr.reg)
+            elif opr.type == x86.X86_OP_MEM:
+                raise NotImplementedError
+                target_pcs = None
+                # 理论上，这里应该先计算访存地址，再读取内存，以拿到操作数
+                # 简单起见，这里直接忽略，否则这个步骤需要去还原内存值，过于heavy
+                # pseudo code:
+                #   access_addr = self._read_reg(ins, state, opr.mem.segment) + read_reg(ins, state, opr.mem.base) + read_reg(ins, state, opr.mem.index) * opr.mem.scale + opr.mem.disp
+                #   call_target_pc = self._read_mem(ins, state, access_addr)
+
+            if target_pcs:
+                target_pcs.append(jump_target_pc)
+
+        # 对call指令，尽量计算其目标地址
+        elif ins.group(x86.X86_GRP_CALL):
+            assert len(ins.operands) == 1
+            opr = ins.operands[0]
+            if opr.type == x86.X86_OP_IMM:
+                call_target_pc = 0xFFFFFFFFFFFFFFFF & opr.imm
+            elif opr.type == x86.X86_OP_REG:
+                call_target_pc = self._read_reg(ins, state, opr.reg)
+            elif opr.type == x86.X86_OP_MEM:
+                raise NotImplementedError
+                target_pcs = None
+                # 同上
+
+            if target_pcs:
+                target_pcs.append(call_target_pc)
+            if stack is not None:
+                logging.warn(f'call {hex(current_pc)} push {hex(current_pc+ins.size)}')
+                stack.append(current_pc + ins.size)
+
+        # 对ret指令，应当检查stack以判断下一条指令位置
+        # 简单起见，设置为any，任何下一条地址都合法
+        # 会漏掉ret后的中断，但问题不大
+        # 2022.09.09: 更新stack记录功能，现在ret可以准确判断下一条地址
+        elif ins.group(x86.X86_GRP_RET) or ins.group(x86.X86_GRP_IRET):
+            # 特殊处理syscall最后一条返回指令，返回空代表不应有下一条指令了
+            if ins.id == x86.X86_INS_SYSRET:
+                target_pcs = []
+            elif stack is not None:
+                target_pcs = [stack.pop()]
+                logging.warn(f'ret {hex(current_pc)} to {[hex(v) for v in target_pcs]}')
+            else:
+                target_pcs = None
+
+        return target_pcs
+
+def exe(cmd):
+    print(cmd)
+    os.system(cmd)
+
+def generate_plugin_header(crash_id):
+    # syscall_table.h and syscall_table2.h
+    parse_syscall_from_source()
+    syscall_table_h = generate_syscall_table_h()
+
+    kotori_plugin_dir = os.path.join(SetupConfig.S2E_SRC_HOME, 'libs2eplugins/src/s2e/Plugins/Kotori')
+    with open(os.path.join(kotori_plugin_dir, 'syscall_table.h'), 'w') as f:
+        f.write(syscall_table_h)
+
+    # build s2e plugins
+    cmd = 's2e build'
+    exe(cmd)
+
+def generate_kallsyms(crash_id, image_ver):
+    crash_proj_dir = os.path.join(SetupConfig.S2E_PROJECT_HOME, crash_id)
+
+    # run meta project and get kallsyms
+    kallsyms_proj_dir = os.path.join(SetupConfig.S2E_PROJECT_HOME, 'kallsyms')
+    cmd = f'cd {kallsyms_proj_dir} && ./launch-s2e.sh'
+    exe(cmd)
+
+    # copy kallsyms.txt to crash project dir
+    kallsyms_file = 's2e-last/outfiles/0/kallsyms.txt'
+    kallsyms_path = os.path.join(kallsyms_proj_dir, kallsyms_file)
+    cmd = f'mv {kallsyms_path} {crash_proj_dir}'
+    exe(cmd)
+
+    # clean up the temp files
+    cmd = f'cd {kallsyms_proj_dir} && rm -rf s2e-out-*'
+    exe(cmd)
+
+def generate_s2e_config_lua(crash_id):
+    crash_proj_dir = os.path.join(SetupConfig.S2E_PROJECT_HOME, crash_id)
+
+    # append dofile to original s2e-config.lua
+    with open(os.path.join(crash_proj_dir, 's2e-config.lua'), 'r') as f:
+        lines = f.readlines()
+
+    for i in range(len(lines)):
+        if 'pluginsConfig.BaseInstructions' in lines[i]:
+            break
+    lines.insert(i+1, f'    module="{crash_id}",\n')
+
+    lines[-1] += '\n'
+    lines.append('dofile("kotori-config.lua")\n')
+    with open(os.path.join(crash_proj_dir, 's2e-config.lua'), 'w') as f:
+        f.writelines(lines)
+
+    # format and copy kotori-config.lua
+    poc = angr.Project(os.path.join(crash_proj_dir, crash_id), auto_load_libs=False)
+    main = poc.loader.main_object.get_symbol("main")
+    main_offset = main.relative_addr
+
+    kotori_config_path = os.path.join(SetupConfig.METAPROJ_DIR, 'proj-template/kotori-config.lua')
+    with open(kotori_config_path, 'r') as f:
+        lines = f.readlines()
+    for i in range(len(lines)):
+        if 'crash_id' in lines[i]:
+            lines[i] = lines[i].replace('crash_id', crash_id)
+        if 'log_file_path' in lines[i]:
+            lines[i] = lines[i].replace('log_file_path', os.path.join(crash_proj_dir, 's2e_trace.pb'))
+        if 'main_offset' in lines[i]:
+            lines[i] = lines[i].replace('0x0', hex(main_offset))
+
+    i = 0
+    for i in range(len(lines)):
+        if lines[i].startswith('pluginsConfig.KotoriPlugin ='):
+            break
+
+    with open(os.path.join(crash_proj_dir, 'kotori-config.lua'), 'w') as f:
+        f.writelines(lines)
+
+    # generate kotori-config-functiontracer.lua for FunctionTracer
+    kallsyms_path = os.path.join(crash_proj_dir, 'kallsyms.txt')
+    functiontracer_config = generate_functiontracer_config(crash_id, kallsyms_path)
+    with open(os.path.join(crash_proj_dir, 'kotori-config-functiontracer.lua'), 'w') as f:
+        f.writelines(functiontracer_config)
+
+def generate_patched_vmlinux(crash_id, image_ver):
+    crash_proj_dir = os.path.join(SetupConfig.S2E_PROJECT_HOME, crash_id)
+
+    # manipulate bootstrap.sh by kallsyms
+    kallsyms = Kallsyms(os.path.join(crash_proj_dir, 'kallsyms.txt'))
+    _stext_addr = kallsyms.name_to_addr['_stext']
+    _etext_addr = kallsyms.name_to_addr['_etext']
+
+    bootstrap_path = os.path.join(SetupConfig.METAPROJ_DIR, 'dumptext/bootstrap.sh')
+    dumptext_proj_dir = os.path.join(SetupConfig.S2E_PROJECT_HOME, 'dumptext')
+    with open(bootstrap_path, 'r') as f:
+        bootstrap = f.readlines()
+    for i in range(len(bootstrap)):
+        if '_stext' in bootstrap[i]:
+            bootstrap[i] = bootstrap[i].replace('_stext', hex(_stext_addr))
+            bootstrap[i] = bootstrap[i].replace('_etext', hex(_etext_addr))
+    with open(os.path.join(dumptext_proj_dir, 'bootstrap.sh'), 'w') as f:
+        f.writelines(bootstrap)
+
+    # run meta project dumptext
+    cmd = f'cd {dumptext_proj_dir} && ./launch-s2e.sh'
+    exe(cmd)
+
+    # get runtime text section
+    ktext_path = os.path.join(dumptext_proj_dir, 's2e-last/outfiles/0/ktext')
+    with open(ktext_path, 'rb') as f:
+        ktext = f.read()
+    data = [b for b in ktext]
+
+    # patch the vmlinux
+    vmlinux_path = os.path.join(SetupConfig.S2E_HOME, 'images/{}/guestfs/vmlinux'.format(image_ver))
+    binary = lief.parse(vmlinux_path)
+    text = binary.get_section('.text')
+    text.content = data
+
+    # save the patched vmlinux
+    out_path = os.path.join(crash_proj_dir, 'vmlinux_patched')
+    binary.write(out_path)
+
+    # clean up the temp files
+    cmd = f'cd {dumptext_proj_dir} && rm -rf s2e-out-*'
+    exe(cmd)
+
+def manipulate_bootstrap_sh(crash_id):
+    crash_proj_dir = os.path.join(SetupConfig.S2E_PROJECT_HOME, crash_id)
+    bootstrap_sh = os.path.join(crash_proj_dir, 'bootstrap.sh')
+
+    with open(bootstrap_sh, 'r') as f:
+        bootstrap = f.readlines()
+
+    sudo_line_id = 0
+    for sudo_line_id, line in enumerate(bootstrap):
+        if 'LD_PRELOAD' in line:
+            break
+
+    line = bootstrap[sudo_line_id].strip()
+    line = line.replace('"', '\\"')
+    line = '\tsudo sh -c "' + line + '"\n'
+    bootstrap[sudo_line_id] = line
+
+    with open(bootstrap_sh, 'w') as f:
+        f.writelines(bootstrap)
+
+def main(crash_id, image_ver):
+    generate_meta_projects(image_ver)
+    generate_plugin_header(crash_id)
+    generate_kallsyms(crash_id, image_ver)
+    generate_s2e_config_lua(crash_id)
+    generate_patched_vmlinux(crash_id, image_ver)
+    manipulate_bootstrap_sh(crash_id)
+
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        raise AttributeError('usage: python3 prepare_project.py <crash_id> <image_ver>')
+
+    crash_id = sys.argv[1]
+    image_ver = sys.argv[2]
+    main(crash_id, image_ver)

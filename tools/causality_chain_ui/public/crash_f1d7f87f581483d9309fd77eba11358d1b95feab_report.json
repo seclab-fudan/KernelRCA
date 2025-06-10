@@ -1,0 +1,990 @@
+{
+    "report": "https://syzkaller.appspot.com/bug?id=f1d7f87f581483d9309fd77eba11358d1b95feab",
+    "title": "KASAN: slab-out-of-bounds Read in qrtr_endpoint_post",
+    "call": {
+        "213": {
+            "name": "+0x319",
+            "parent_idx": 206,
+            "source_line": [
+                {
+                    "file": "net/qrtr/qrtr.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/qrtr/qrtr.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n462",
+                    "code": [
+                        "/**",
+                        " * qrtr_endpoint_post() - post incoming data",
+                        " * @ep: endpoint handle",
+                        " * @data: data pointer",
+                        " * @len: size of data in bytes",
+                        " *",
+                        " * Return: 0 on success; negative error code on failure",
+                        " */",
+                        "int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)",
+                        "{",
+                        "\tstruct qrtr_node *node = ep->node;",
+                        "\tconst struct qrtr_hdr_v1 *v1;",
+                        "\tconst struct qrtr_hdr_v2 *v2;",
+                        "\tstruct qrtr_sock *ipc;",
+                        "\tstruct sk_buff *skb;",
+                        "\tstruct qrtr_cb *cb;",
+                        "\tunsigned int size;",
+                        "\tunsigned int ver;",
+                        "\tsize_t hdrlen;",
+                        "",
+                        "\tif (len & 3)",
+                        "\t\treturn -EINVAL;",
+                        "",
+                        "\tskb = netdev_alloc_skb(NULL, len);",
+                        "\tif (!skb)",
+                        "\t\treturn -ENOMEM;",
+                        "",
+                        "\tcb = (struct qrtr_cb *)skb->cb;",
+                        "",
+                        "\t/* Version field in v1 is little endian, so this works for both cases */",
+                        "\tver = *(u8*)data;",
+                        "",
+                        "\tswitch (ver) {",
+                        "\tcase QRTR_PROTO_VER_1:",
+                        "\t\tv1 = data;",
+                        "\t\thdrlen = sizeof(*v1);",
+                        "",
+                        "\t\tcb->type = le32_to_cpu(v1->type);",
+                        "\t\tcb->src_node = le32_to_cpu(v1->src_node_id);",
+                        "\t\tcb->src_port = le32_to_cpu(v1->src_port_id);",
+                        "\t\tcb->confirm_rx = !!v1->confirm_rx;",
+                        "\t\tcb->dst_node = le32_to_cpu(v1->dst_node_id);",
+                        "\t\tcb->dst_port = le32_to_cpu(v1->dst_port_id);",
+                        "",
+                        "\t\tsize = le32_to_cpu(v1->size);",
+                        "\t\tbreak;",
+                        "\tcase QRTR_PROTO_VER_2:",
+                        "\t\tv2 = data;",
+                        "\t\thdrlen = sizeof(*v2) + v2->optlen;",
+                        "",
+                        "\t\tcb->type = v2->type;",
+                        "\t\tcb->confirm_rx = !!(v2->flags & QRTR_FLAGS_CONFIRM_RX);",
+                        "\t\tcb->src_node = le16_to_cpu(v2->src_node_id);",
+                        "\t\tcb->src_port = le16_to_cpu(v2->src_port_id);",
+                        "\t\tcb->dst_node = le16_to_cpu(v2->dst_node_id);",
+                        "\t\tcb->dst_port = le16_to_cpu(v2->dst_port_id);",
+                        "",
+                        "\t\tif (cb->src_port == (u16)QRTR_PORT_CTRL)",
+                        "\t\t\tcb->src_port = QRTR_PORT_CTRL;",
+                        "\t\tif (cb->dst_port == (u16)QRTR_PORT_CTRL)",
+                        "\t\t\tcb->dst_port = QRTR_PORT_CTRL;",
+                        "",
+                        "\t\tsize = le32_to_cpu(v2->size);",
+                        "\t\tbreak;",
+                        "\tdefault:",
+                        "\t\tpr_err(\"qrtr: Invalid version %d\\n\", ver);",
+                        "\t\tgoto err;",
+                        "\t}",
+                        "",
+                        "\tif (len != ALIGN(size, 4) + hdrlen)",
+                        "\t\tgoto err;",
+                        "",
+                        "\tif (cb->dst_port != QRTR_PORT_CTRL && cb->type != QRTR_TYPE_DATA &&",
+                        "\t    cb->type != QRTR_TYPE_RESUME_TX)",
+                        "\t\tgoto err;",
+                        "",
+                        "\tskb_put_data(skb, data + hdrlen, size);",
+                        "",
+                        "\tqrtr_node_assign(node, cb->src_node);",
+                        "",
+                        "\tif (cb->type == QRTR_TYPE_RESUME_TX) {",
+                        "\t\tqrtr_tx_resume(node, skb);",
+                        "\t} else {",
+                        "\t\tipc = qrtr_port_lookup(cb->dst_port);",
+                        "\t\tif (!ipc)",
+                        "\t\t\tgoto err;",
+                        "",
+                        "\t\tif (sock_queue_rcv_skb(&ipc->sk, skb))",
+                        "\t\t\tgoto err;",
+                        "",
+                        "\t\tqrtr_port_put(ipc);",
+                        "\t}",
+                        "",
+                        "\treturn 0;",
+                        "",
+                        "err:",
+                        "\tkfree_skb(skb);",
+                        "\treturn -EINVAL;",
+                        "",
+                        "}"
+                    ],
+                    "start": 410,
+                    "highlight": 462
+                }
+            ],
+            "ins_idx": 3,
+            "addr": "0xffffffff8228c759"
+        },
+        "206": {
+            "name": "qrtr_endpoint_post",
+            "parent_idx": 193,
+            "source_line": [
+                {
+                    "file": "net/qrtr/tun.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/qrtr/tun.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n92",
+                    "code": [
+                        "static ssize_t qrtr_tun_write_iter(struct kiocb *iocb, struct iov_iter *from)",
+                        "{",
+                        "\tstruct file *filp = iocb->ki_filp;",
+                        "\tstruct qrtr_tun *tun = filp->private_data;",
+                        "\tsize_t len = iov_iter_count(from);",
+                        "\tssize_t ret;",
+                        "\tvoid *kbuf;",
+                        "",
+                        "\tkbuf = kzalloc(len, GFP_KERNEL);",
+                        "\tif (!kbuf)",
+                        "\t\treturn -ENOMEM;",
+                        "",
+                        "\tif (!copy_from_iter_full(kbuf, len, from)) {",
+                        "\t\tkfree(kbuf);",
+                        "\t\treturn -EFAULT;",
+                        "\t}",
+                        "",
+                        "\tret = qrtr_endpoint_post(&tun->ep, kbuf, len);",
+                        "",
+                        "\tkfree(kbuf);",
+                        "\treturn ret < 0 ? ret : len;",
+                        "}"
+                    ],
+                    "start": 75,
+                    "highlight": 92
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff8228fe9f"
+        },
+        "193": {
+            "name": "qrtr_tun_write_iter(indirect)",
+            "parent_idx": 188,
+            "source_line": [
+                {
+                    "file": "./include/linux/fs.h",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/./include/linux/fs.h?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n1907",
+                    "code": [
+                        "static inline ssize_t call_write_iter(struct file *file, struct kiocb *kio,",
+                        "\t\t\t\t      struct iov_iter *iter)",
+                        "{",
+                        "\treturn file->f_op->write_iter(kio, iter);",
+                        "}"
+                    ],
+                    "start": 1904,
+                    "highlight": 1907
+                },
+                {
+                    "file": "fs/read_write.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/read_write.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n694",
+                    "code": [
+                        "static ssize_t do_iter_readv_writev(struct file *filp, struct iov_iter *iter,",
+                        "\t\tloff_t *ppos, int type, rwf_t flags)",
+                        "{",
+                        "\tstruct kiocb kiocb;",
+                        "\tssize_t ret;",
+                        "",
+                        "\tinit_sync_kiocb(&kiocb, filp);",
+                        "\tret = kiocb_set_rw_flags(&kiocb, flags);",
+                        "\tif (ret)",
+                        "\t\treturn ret;",
+                        "\tkiocb.ki_pos = (ppos ? *ppos : 0);",
+                        "",
+                        "\tif (type == READ)",
+                        "\t\tret = call_read_iter(filp, &kiocb, iter);",
+                        "\telse",
+                        "\t\tret = call_write_iter(filp, &kiocb, iter);",
+                        "\tBUG_ON(ret == -EIOCBQUEUED);",
+                        "\tif (ppos)",
+                        "\t\t*ppos = kiocb.ki_pos;",
+                        "\treturn ret;",
+                        "}"
+                    ],
+                    "start": 679,
+                    "highlight": 694
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff8130fcf7"
+        },
+        "188": {
+            "name": "do_iter_readv_writev",
+            "parent_idx": 176,
+            "source_line": [
+                {
+                    "file": "fs/read_write.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/read_write.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n999",
+                    "code": [
+                        "static ssize_t do_iter_write(struct file *file, struct iov_iter *iter,",
+                        "\t\tloff_t *pos, rwf_t flags)",
+                        "{",
+                        "\tsize_t tot_len;",
+                        "\tssize_t ret = 0;",
+                        "",
+                        "\tif (!(file->f_mode & FMODE_WRITE))",
+                        "\t\treturn -EBADF;",
+                        "\tif (!(file->f_mode & FMODE_CAN_WRITE))",
+                        "\t\treturn -EINVAL;",
+                        "",
+                        "\ttot_len = iov_iter_count(iter);",
+                        "\tif (!tot_len)",
+                        "\t\treturn 0;",
+                        "\tret = rw_verify_area(WRITE, file, pos, tot_len);",
+                        "\tif (ret < 0)",
+                        "\t\treturn ret;",
+                        "",
+                        "\tif (file->f_op->write_iter)",
+                        "\t\tret = do_iter_readv_writev(file, iter, pos, WRITE, flags);",
+                        "\telse",
+                        "\t\tret = do_loop_readv_writev(file, iter, pos, WRITE, flags);",
+                        "\tif (ret > 0)",
+                        "\t\tfsnotify_modify(file);",
+                        "\treturn ret;",
+                        "}"
+                    ],
+                    "start": 980,
+                    "highlight": 999
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff81312d57"
+        },
+        "176": {
+            "name": "do_iter_write",
+            "parent_idx": 134,
+            "source_line": [
+                {
+                    "file": "fs/read_write.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/read_write.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n1072",
+                    "code": [
+                        "static ssize_t vfs_writev(struct file *file, const struct iovec __user *vec,",
+                        "\t\t   unsigned long vlen, loff_t *pos, rwf_t flags)",
+                        "{",
+                        "\tstruct iovec iovstack[UIO_FASTIOV];",
+                        "\tstruct iovec *iov = iovstack;",
+                        "\tstruct iov_iter iter;",
+                        "\tssize_t ret;",
+                        "",
+                        "\tret = import_iovec(WRITE, vec, vlen, ARRAY_SIZE(iovstack), &iov, &iter);",
+                        "\tif (ret >= 0) {",
+                        "\t\tfile_start_write(file);",
+                        "\t\tret = do_iter_write(file, &iter, pos, flags);",
+                        "\t\tfile_end_write(file);",
+                        "\t\tkfree(iov);",
+                        "\t}",
+                        "\treturn ret;",
+                        "}"
+                    ],
+                    "start": 1061,
+                    "highlight": 1072
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff813130af"
+        },
+        "134": {
+            "name": "vfs_writev",
+            "parent_idx": 125,
+            "source_line": [
+                {
+                    "file": "fs/read_write.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/read_write.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n1169",
+                    "code": [
+                        "static ssize_t do_pwritev(unsigned long fd, const struct iovec __user *vec,",
+                        "\t\t\t  unsigned long vlen, loff_t pos, rwf_t flags)",
+                        "{",
+                        "\tstruct fd f;",
+                        "\tssize_t ret = -EBADF;",
+                        "",
+                        "\tif (pos < 0)",
+                        "\t\treturn -EINVAL;",
+                        "",
+                        "\tf = fdget(fd);",
+                        "\tif (f.file) {",
+                        "\t\tret = -ESPIPE;",
+                        "\t\tif (f.file->f_mode & FMODE_PWRITE)",
+                        "\t\t\tret = vfs_writev(f.file, vec, vlen, &pos, flags);",
+                        "\t\tfdput(f);",
+                        "\t}",
+                        "",
+                        "\tif (ret > 0)",
+                        "\t\tadd_wchar(current, ret);",
+                        "\tinc_syscw(current);",
+                        "\treturn ret;",
+                        "}"
+                    ],
+                    "start": 1156,
+                    "highlight": 1169
+                },
+                {
+                    "file": "fs/read_write.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/read_write.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n1216",
+                    "code": [
+                        "SYSCALL_DEFINE5(pwritev, unsigned long, fd, const struct iovec __user *, vec,",
+                        "\t\tunsigned long, vlen, unsigned long, pos_l, unsigned long, pos_h)",
+                        "{",
+                        "\tloff_t pos = pos_from_hilo(pos_h, pos_l);",
+                        "",
+                        "\treturn do_pwritev(fd, vec, vlen, pos, 0);",
+                        "}"
+                    ],
+                    "start": 1211,
+                    "highlight": 1216
+                },
+                {
+                    "file": "fs/read_write.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/fs/read_write.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n1211",
+                    "code": [
+                        "SYSCALL_DEFINE6(preadv2, unsigned long, fd, const struct iovec __user *, vec,",
+                        "\t\tunsigned long, vlen, unsigned long, pos_l, unsigned long, pos_h,",
+                        "\t\trwf_t, flags)",
+                        "{",
+                        "\tloff_t pos = pos_from_hilo(pos_h, pos_l);",
+                        "",
+                        "\tif (pos == -1)",
+                        "\t\treturn do_readv(fd, vec, vlen, flags);",
+                        "",
+                        "\treturn do_preadv(fd, vec, vlen, pos, flags);",
+                        "}",
+                        "",
+                        "SYSCALL_DEFINE5(pwritev, unsigned long, fd, const struct iovec __user *, vec,",
+                        "\t\tunsigned long, vlen, unsigned long, pos_l, unsigned long, pos_h)",
+                        "{",
+                        "\tloff_t pos = pos_from_hilo(pos_h, pos_l);",
+                        "",
+                        "\treturn do_pwritev(fd, vec, vlen, pos, 0);",
+                        "}"
+                    ],
+                    "start": 1199,
+                    "highlight": 1211
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff8131376b"
+        },
+        "125": {
+            "name": "__x64_sys_pwritev(indirect)",
+            "parent_idx": 122,
+            "source_line": [
+                {
+                    "file": "arch/x86/entry/common.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/entry/common.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n359",
+                    "code": [
+                        "#ifdef CONFIG_X86_64",
+                        "__visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)",
+                        "{",
+                        "\tstruct thread_info *ti;",
+                        "",
+                        "\tenter_from_user_mode();",
+                        "\tinstrumentation_begin();",
+                        "",
+                        "\tlocal_irq_enable();",
+                        "\tti = current_thread_info();",
+                        "\tif (READ_ONCE(ti->flags) & _TIF_WORK_SYSCALL_ENTRY)",
+                        "\t\tnr = syscall_trace_enter(regs);",
+                        "",
+                        "\tif (likely(nr < NR_syscalls)) {",
+                        "\t\tnr = array_index_nospec(nr, NR_syscalls);",
+                        "\t\tregs->ax = sys_call_table[nr](regs);",
+                        "#ifdef CONFIG_X86_X32_ABI",
+                        "\t} else if (likely((nr & __X32_SYSCALL_BIT) &&",
+                        "\t\t\t  (nr & ~__X32_SYSCALL_BIT) < X32_NR_syscalls)) {",
+                        "\t\tnr = array_index_nospec(nr & ~__X32_SYSCALL_BIT,",
+                        "\t\t\t\t\tX32_NR_syscalls);",
+                        "\t\tregs->ax = x32_sys_call_table[nr](regs);",
+                        "#endif",
+                        "\t}",
+                        "\t__syscall_return_slowpath(regs);",
+                        "",
+                        "\tinstrumentation_end();",
+                        "\texit_to_user_mode();",
+                        "}"
+                    ],
+                    "start": 344,
+                    "highlight": 359
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff82298719"
+        },
+        "122": {
+            "name": "do_syscall_64",
+            "parent_idx": 116,
+            "source_line": [
+                {
+                    "file": "arch/x86/entry/entry_64.S",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/arch/x86/entry/entry_64.S?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n117",
+                    "code": [
+                        "SYM_CODE_START(entry_SYSCALL_64)",
+                        "\tUNWIND_HINT_EMPTY",
+                        "",
+                        "\tswapgs",
+                        "\t/* tss.sp2 is scratch space. */",
+                        "\tmovq\t%rsp, PER_CPU_VAR(cpu_tss_rw + TSS_sp2)",
+                        "\tSWITCH_TO_KERNEL_CR3 scratch_reg=%rsp",
+                        "\tmovq\tPER_CPU_VAR(cpu_current_top_of_stack), %rsp",
+                        "",
+                        "\t/* Construct struct pt_regs on stack */",
+                        "\tpushq\t$__USER_DS\t\t\t\t/* pt_regs->ss */",
+                        "\tpushq\tPER_CPU_VAR(cpu_tss_rw + TSS_sp2)\t/* pt_regs->sp */",
+                        "\tpushq\t%r11\t\t\t\t\t/* pt_regs->flags */",
+                        "\tpushq\t$__USER_CS\t\t\t\t/* pt_regs->cs */",
+                        "\tpushq\t%rcx\t\t\t\t\t/* pt_regs->ip */",
+                        "SYM_INNER_LABEL(entry_SYSCALL_64_after_hwframe, SYM_L_GLOBAL)",
+                        "\tpushq\t%rax\t\t\t\t\t/* pt_regs->orig_ax */",
+                        "",
+                        "\tPUSH_AND_CLEAR_REGS rax=$-ENOSYS",
+                        "",
+                        "\t/* IRQs are off. */",
+                        "\tmovq\t%rax, %rdi",
+                        "\tmovq\t%rsp, %rsi",
+                        "\tcall\tdo_syscall_64\t\t/* returns with IRQs disabled */",
+                        "",
+                        "\t/*",
+                        "\t * Try to use SYSRET instead of IRET if we're returning to",
+                        "\t * a completely clean 64-bit userspace context.  If we're not,",
+                        "\t * go to the slow exit path.",
+                        "\t */",
+                        "\tmovq\tRCX(%rsp), %rcx",
+                        "\tmovq\tRIP(%rsp), %r11",
+                        "",
+                        "\tcmpq\t%rcx, %r11\t/* SYSRET requires RCX == RIP */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/*",
+                        "\t * On Intel CPUs, SYSRET with non-canonical RCX/RIP will #GP",
+                        "\t * in kernel space.  This essentially lets the user take over",
+                        "\t * the kernel, since userspace controls RSP.",
+                        "\t *",
+                        "\t * If width of \"canonical tail\" ever becomes variable, this will need",
+                        "\t * to be updated to remain correct on both old and new CPUs.",
+                        "\t *",
+                        "\t * Change top bits to match most significant bit (47th or 56th bit",
+                        "\t * depending on paging mode) in the address.",
+                        "\t */",
+                        "#ifdef CONFIG_X86_5LEVEL",
+                        "\tALTERNATIVE \"shl $(64 - 48), %rcx; sar $(64 - 48), %rcx\", \\",
+                        "\t\t\"shl $(64 - 57), %rcx; sar $(64 - 57), %rcx\", X86_FEATURE_LA57",
+                        "#else",
+                        "\tshl\t$(64 - (__VIRTUAL_MASK_SHIFT+1)), %rcx",
+                        "\tsar\t$(64 - (__VIRTUAL_MASK_SHIFT+1)), %rcx",
+                        "#endif",
+                        "",
+                        "\t/* If this changed %rcx, it was not canonical */",
+                        "\tcmpq\t%rcx, %r11",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\tcmpq\t$__USER_CS, CS(%rsp)\t\t/* CS must match SYSRET */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\tmovq\tR11(%rsp), %r11",
+                        "\tcmpq\t%r11, EFLAGS(%rsp)\t\t/* R11 == RFLAGS */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/*",
+                        "\t * SYSCALL clears RF when it saves RFLAGS in R11 and SYSRET cannot",
+                        "\t * restore RF properly. If the slowpath sets it for whatever reason, we",
+                        "\t * need to restore it correctly.",
+                        "\t *",
+                        "\t * SYSRET can restore TF, but unlike IRET, restoring TF results in a",
+                        "\t * trap from userspace immediately after SYSRET.  This would cause an",
+                        "\t * infinite loop whenever #DB happens with register state that satisfies",
+                        "\t * the opportunistic SYSRET conditions.  For example, single-stepping",
+                        "\t * this user code:",
+                        "\t *",
+                        "\t *           movq\t$stuck_here, %rcx",
+                        "\t *           pushfq",
+                        "\t *           popq %r11",
+                        "\t *   stuck_here:",
+                        "\t *",
+                        "\t * would never get past 'stuck_here'.",
+                        "\t */",
+                        "\ttestq\t$(X86_EFLAGS_RF|X86_EFLAGS_TF), %r11",
+                        "\tjnz\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/* nothing to check for RSP */",
+                        "",
+                        "\tcmpq\t$__USER_DS, SS(%rsp)\t\t/* SS must match SYSRET */",
+                        "\tjne\tswapgs_restore_regs_and_return_to_usermode",
+                        "",
+                        "\t/*",
+                        "\t * We win! This label is here just for ease of understanding",
+                        "\t * perf profiles. Nothing jumps here.",
+                        "\t */",
+                        "syscall_return_via_sysret:",
+                        "\t/* rcx and r11 are already restored (see code above) */",
+                        "\tPOP_REGS pop_rdi=0 skip_r11rcx=1",
+                        "",
+                        "\t/*",
+                        "\t * Now all regs are restored except RSP and RDI.",
+                        "\t * Save old stack pointer and switch to trampoline stack.",
+                        "\t */",
+                        "\tmovq\t%rsp, %rdi",
+                        "\tmovq\tPER_CPU_VAR(cpu_tss_rw + TSS_sp0), %rsp",
+                        "\tUNWIND_HINT_EMPTY",
+                        "",
+                        "\tpushq\tRSP-RDI(%rdi)\t/* RSP */",
+                        "\tpushq\t(%rdi)\t\t/* RDI */",
+                        "",
+                        "\t/*",
+                        "\t * We are on the trampoline stack.  All regs except RDI are live.",
+                        "\t * We can do future final exit work right here.",
+                        "\t */",
+                        "\tSTACKLEAK_ERASE_NOCLOBBER",
+                        "",
+                        "\tSWITCH_TO_USER_CR3_STACK scratch_reg=%rdi",
+                        "",
+                        "\tpopq\t%rdi",
+                        "\tpopq\t%rsp",
+                        "\tUSERGS_SYSRET64",
+                        "SYM_CODE_END(entry_SYSCALL_64)"
+                    ],
+                    "start": 94,
+                    "highlight": 117
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff82400077"
+        },
+        "116": {
+            "name": "79_syscall_5",
+            "parent_idx": 1,
+            "source_line": [],
+            "ins_idx": 0,
+            "addr": "0x0"
+        },
+        "1": {
+            "name": "PoC",
+            "parent_idx": 0,
+            "source_line": [],
+            "ins_idx": 0,
+            "addr": "0x0"
+        },
+        "207": {
+            "name": "+0x14",
+            "parent_idx": 206,
+            "source_line": [
+                {
+                    "file": "net/qrtr/qrtr.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/qrtr/qrtr.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n419",
+                    "code": [
+                        "/**",
+                        " * qrtr_endpoint_post() - post incoming data",
+                        " * @ep: endpoint handle",
+                        " * @data: data pointer",
+                        " * @len: size of data in bytes",
+                        " *",
+                        " * Return: 0 on success; negative error code on failure",
+                        " */",
+                        "int qrtr_endpoint_post(struct qrtr_endpoint *ep, const void *data, size_t len)",
+                        "{",
+                        "\tstruct qrtr_node *node = ep->node;",
+                        "\tconst struct qrtr_hdr_v1 *v1;",
+                        "\tconst struct qrtr_hdr_v2 *v2;",
+                        "\tstruct qrtr_sock *ipc;",
+                        "\tstruct sk_buff *skb;",
+                        "\tstruct qrtr_cb *cb;",
+                        "\tunsigned int size;",
+                        "\tunsigned int ver;",
+                        "\tsize_t hdrlen;",
+                        "",
+                        "\tif (len & 3)",
+                        "\t\treturn -EINVAL;",
+                        "",
+                        "\tskb = netdev_alloc_skb(NULL, len);",
+                        "\tif (!skb)",
+                        "\t\treturn -ENOMEM;",
+                        "",
+                        "\tcb = (struct qrtr_cb *)skb->cb;",
+                        "",
+                        "\t/* Version field in v1 is little endian, so this works for both cases */",
+                        "\tver = *(u8*)data;",
+                        "",
+                        "\tswitch (ver) {",
+                        "\tcase QRTR_PROTO_VER_1:",
+                        "\t\tv1 = data;",
+                        "\t\thdrlen = sizeof(*v1);",
+                        "",
+                        "\t\tcb->type = le32_to_cpu(v1->type);",
+                        "\t\tcb->src_node = le32_to_cpu(v1->src_node_id);",
+                        "\t\tcb->src_port = le32_to_cpu(v1->src_port_id);",
+                        "\t\tcb->confirm_rx = !!v1->confirm_rx;",
+                        "\t\tcb->dst_node = le32_to_cpu(v1->dst_node_id);",
+                        "\t\tcb->dst_port = le32_to_cpu(v1->dst_port_id);",
+                        "",
+                        "\t\tsize = le32_to_cpu(v1->size);",
+                        "\t\tbreak;",
+                        "\tcase QRTR_PROTO_VER_2:",
+                        "\t\tv2 = data;",
+                        "\t\thdrlen = sizeof(*v2) + v2->optlen;",
+                        "",
+                        "\t\tcb->type = v2->type;",
+                        "\t\tcb->confirm_rx = !!(v2->flags & QRTR_FLAGS_CONFIRM_RX);",
+                        "\t\tcb->src_node = le16_to_cpu(v2->src_node_id);",
+                        "\t\tcb->src_port = le16_to_cpu(v2->src_port_id);",
+                        "\t\tcb->dst_node = le16_to_cpu(v2->dst_node_id);",
+                        "\t\tcb->dst_port = le16_to_cpu(v2->dst_port_id);",
+                        "",
+                        "\t\tif (cb->src_port == (u16)QRTR_PORT_CTRL)",
+                        "\t\t\tcb->src_port = QRTR_PORT_CTRL;",
+                        "\t\tif (cb->dst_port == (u16)QRTR_PORT_CTRL)",
+                        "\t\t\tcb->dst_port = QRTR_PORT_CTRL;",
+                        "",
+                        "\t\tsize = le32_to_cpu(v2->size);",
+                        "\t\tbreak;",
+                        "\tdefault:",
+                        "\t\tpr_err(\"qrtr: Invalid version %d\\n\", ver);",
+                        "\t\tgoto err;",
+                        "\t}",
+                        "",
+                        "\tif (len != ALIGN(size, 4) + hdrlen)",
+                        "\t\tgoto err;",
+                        "",
+                        "\tif (cb->dst_port != QRTR_PORT_CTRL && cb->type != QRTR_TYPE_DATA &&",
+                        "\t    cb->type != QRTR_TYPE_RESUME_TX)",
+                        "\t\tgoto err;",
+                        "",
+                        "\tskb_put_data(skb, data + hdrlen, size);",
+                        "",
+                        "\tqrtr_node_assign(node, cb->src_node);",
+                        "",
+                        "\tif (cb->type == QRTR_TYPE_RESUME_TX) {",
+                        "\t\tqrtr_tx_resume(node, skb);",
+                        "\t} else {",
+                        "\t\tipc = qrtr_port_lookup(cb->dst_port);",
+                        "\t\tif (!ipc)",
+                        "\t\t\tgoto err;",
+                        "",
+                        "\t\tif (sock_queue_rcv_skb(&ipc->sk, skb))",
+                        "\t\t\tgoto err;",
+                        "",
+                        "\t\tqrtr_port_put(ipc);",
+                        "\t}",
+                        "",
+                        "\treturn 0;",
+                        "",
+                        "err:",
+                        "\tkfree_skb(skb);",
+                        "\treturn -EINVAL;",
+                        "",
+                        "}"
+                    ],
+                    "start": 410,
+                    "highlight": 419
+                }
+            ],
+            "ins_idx": 17,
+            "addr": "0xffffffff8228c454"
+        },
+        "205": {
+            "name": "+0x69",
+            "parent_idx": 193,
+            "source_line": [
+                {
+                    "file": "net/qrtr/tun.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/qrtr/tun.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n92",
+                    "code": [
+                        "static ssize_t qrtr_tun_write_iter(struct kiocb *iocb, struct iov_iter *from)",
+                        "{",
+                        "\tstruct file *filp = iocb->ki_filp;",
+                        "\tstruct qrtr_tun *tun = filp->private_data;",
+                        "\tsize_t len = iov_iter_count(from);",
+                        "\tssize_t ret;",
+                        "\tvoid *kbuf;",
+                        "",
+                        "\tkbuf = kzalloc(len, GFP_KERNEL);",
+                        "\tif (!kbuf)",
+                        "\t\treturn -ENOMEM;",
+                        "",
+                        "\tif (!copy_from_iter_full(kbuf, len, from)) {",
+                        "\t\tkfree(kbuf);",
+                        "\t\treturn -EFAULT;",
+                        "\t}",
+                        "",
+                        "\tret = qrtr_endpoint_post(&tun->ep, kbuf, len);",
+                        "",
+                        "\tkfree(kbuf);",
+                        "\treturn ret < 0 ? ret : len;",
+                        "}"
+                    ],
+                    "start": 75,
+                    "highlight": 92
+                }
+            ],
+            "ins_idx": 20,
+            "addr": "0xffffffff8228fe99"
+        },
+        "199": {
+            "name": "+0x48",
+            "parent_idx": 193,
+            "source_line": [
+                {
+                    "file": "net/qrtr/tun.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/qrtr/tun.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n84",
+                    "code": [
+                        "static ssize_t qrtr_tun_write_iter(struct kiocb *iocb, struct iov_iter *from)",
+                        "{",
+                        "\tstruct file *filp = iocb->ki_filp;",
+                        "\tstruct qrtr_tun *tun = filp->private_data;",
+                        "\tsize_t len = iov_iter_count(from);",
+                        "\tssize_t ret;",
+                        "\tvoid *kbuf;",
+                        "",
+                        "\tkbuf = kzalloc(len, GFP_KERNEL);",
+                        "\tif (!kbuf)",
+                        "\t\treturn -ENOMEM;",
+                        "",
+                        "\tif (!copy_from_iter_full(kbuf, len, from)) {",
+                        "\t\tkfree(kbuf);",
+                        "\t\treturn -EFAULT;",
+                        "\t}",
+                        "",
+                        "\tret = qrtr_endpoint_post(&tun->ep, kbuf, len);",
+                        "",
+                        "\tkfree(kbuf);",
+                        "\treturn ret < 0 ? ret : len;",
+                        "}"
+                    ],
+                    "start": 75,
+                    "highlight": 84
+                }
+            ],
+            "ins_idx": 34,
+            "addr": "0xffffffff8228fe78"
+        },
+        "198": {
+            "name": "+0x3b",
+            "parent_idx": 197,
+            "source_line": [
+                {
+                    "file": "mm/kasan/common.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/mm/kasan/common.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n51",
+                    "code": [
+                        "static inline depot_stack_handle_t save_stack(gfp_t flags)",
+                        "{",
+                        "\tunsigned long entries[KASAN_STACK_DEPTH];",
+                        "\tunsigned int nr_entries;",
+                        "",
+                        "\tnr_entries = stack_trace_save(entries, ARRAY_SIZE(entries), 0);",
+                        "\tnr_entries = filter_irq_stacks(entries, nr_entries);",
+                        "\treturn stack_depot_save(entries, nr_entries, flags);",
+                        "}"
+                    ],
+                    "start": 43,
+                    "highlight": 51
+                }
+            ],
+            "ins_idx": 40,
+            "addr": "0xffffffff81302c2b"
+        },
+        "197": {
+            "name": "__kmalloc",
+            "parent_idx": 193,
+            "source_line": [
+                {
+                    "file": "./include/linux/slab.h",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/./include/linux/slab.h?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n560",
+                    "code": [
+                        "\t\treturn kmem_cache_alloc_trace(",
+                        "\t\t\t\tkmalloc_caches[kmalloc_type(flags)][index],",
+                        "\t\t\t\tflags, size);",
+                        "#endif",
+                        "\t}",
+                        "\treturn __kmalloc(size, flags);",
+                        "}"
+                    ],
+                    "start": 555,
+                    "highlight": 560
+                },
+                {
+                    "file": "./include/linux/slab.h",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/./include/linux/slab.h?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n669",
+                    "code": [
+                        "/**",
+                        " * kzalloc - allocate memory. The memory is set to zero.",
+                        " * @size: how many bytes of memory are required.",
+                        " * @flags: the type of memory to allocate (see kmalloc).",
+                        " */",
+                        "static inline void *kzalloc(size_t size, gfp_t flags)",
+                        "{",
+                        "\treturn kmalloc(size, flags | __GFP_ZERO);",
+                        "}"
+                    ],
+                    "start": 662,
+                    "highlight": 669
+                },
+                {
+                    "file": "net/qrtr/tun.c",
+                    "url": "https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/tree/net/qrtr/tun.c?id=1590a2e1c681b0991bd42c992cabfd380e0338f2#n83",
+                    "code": [
+                        "static ssize_t qrtr_tun_write_iter(struct kiocb *iocb, struct iov_iter *from)",
+                        "{",
+                        "\tstruct file *filp = iocb->ki_filp;",
+                        "\tstruct qrtr_tun *tun = filp->private_data;",
+                        "\tsize_t len = iov_iter_count(from);",
+                        "\tssize_t ret;",
+                        "\tvoid *kbuf;",
+                        "",
+                        "\tkbuf = kzalloc(len, GFP_KERNEL);",
+                        "\tif (!kbuf)",
+                        "\t\treturn -ENOMEM;",
+                        "",
+                        "\tif (!copy_from_iter_full(kbuf, len, from)) {",
+                        "\t\tkfree(kbuf);",
+                        "\t\treturn -EFAULT;",
+                        "\t}",
+                        "",
+                        "\tret = qrtr_endpoint_post(&tun->ep, kbuf, len);",
+                        "",
+                        "\tkfree(kbuf);",
+                        "\treturn ret < 0 ? ret : len;",
+                        "}"
+                    ],
+                    "start": 75,
+                    "highlight": 83
+                }
+            ],
+            "ins_idx": 0,
+            "addr": "0xffffffff8228fe6e"
+        }
+    },
+    "ins": {
+        "3": {
+            "name": "movzx r12d, word ptr [rbx + 8]",
+            "desc": "Invalid Memory Access\nOut of Bound Access.",
+            "call_idx": 213,
+            "inputs": [
+                352,
+                353
+            ],
+            "outputs": [
+                354
+            ]
+        },
+        "17": {
+            "name": "mov rbx, rsi",
+            "desc": "",
+            "call_idx": 207,
+            "inputs": [
+                342
+            ],
+            "outputs": [
+                343
+            ]
+        },
+        "20": {
+            "name": "mov rsi, rbp",
+            "desc": "",
+            "call_idx": 205,
+            "inputs": [
+                340
+            ],
+            "outputs": [
+                341
+            ]
+        },
+        "34": {
+            "name": "mov rbp, rax",
+            "desc": "",
+            "call_idx": 199,
+            "inputs": [
+                330
+            ],
+            "outputs": [
+                331
+            ]
+        },
+        "40": {
+            "name": "ret ",
+            "desc": "",
+            "call_idx": 198,
+            "inputs": [],
+            "outputs": [
+                329
+            ]
+        }
+    },
+    "data": {
+        "352": {
+            "name": "RBX",
+            "ins_idx": 3,
+            "value": "0xffff8881e96319c0",
+            "sources": []
+        },
+        "353": {
+            "name": "[0xffff8881e96319c8]",
+            "ins_idx": 3,
+            "value": "0x0",
+            "sources": []
+        },
+        "354": {
+            "name": "R12",
+            "ins_idx": 3,
+            "value": "0x0",
+            "sources": []
+        },
+        "342": {
+            "name": "RSI",
+            "ins_idx": 17,
+            "value": "0xffff8881e96319c0",
+            "sources": []
+        },
+        "343": {
+            "name": "RBX",
+            "ins_idx": 17,
+            "value": "0xffff8881e96319c0",
+            "sources": [
+                352
+            ]
+        },
+        "340": {
+            "name": "RBP",
+            "ins_idx": 20,
+            "value": "0xffff8881e96319c0",
+            "sources": []
+        },
+        "341": {
+            "name": "RSI",
+            "ins_idx": 20,
+            "value": "0xffff8881e96319c0",
+            "sources": [
+                342
+            ]
+        },
+        "330": {
+            "name": "RAX",
+            "ins_idx": 34,
+            "value": "0xffff8881e96319c0",
+            "sources": []
+        },
+        "331": {
+            "name": "RBP",
+            "ins_idx": 34,
+            "value": "0xffff8881e96319c0",
+            "sources": [
+                340
+            ]
+        },
+        "329": {
+            "name": "RAX",
+            "ins_idx": 40,
+            "value": "0xffff8881e96319c0",
+            "sources": [
+                330
+            ]
+        }
+    },
+    "chain": {
+        "3": [
+            17
+        ],
+        "17": [
+            20
+        ],
+        "20": [
+            34
+        ],
+        "34": [
+            40
+        ]
+    }
+}

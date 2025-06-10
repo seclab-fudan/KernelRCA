@@ -1,0 +1,14 @@
+diff --git a/Makefile b/Makefile
+index e30cf02da8b8..730f23761df0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -734,6 +734,9 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, address-of-packed-member)
+ 
+ ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
+ KBUILD_CFLAGS += -O2
++KBUILD_CFLAGS += $(call cc-option, -fno-inline-functions) \
++		 $(call cc-option, -fno-inline-small-functions) \
++		 $(call cc-option, -fno-inline-functions-called-once)
+ else ifdef CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3
+ KBUILD_CFLAGS += -O3
+ else ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
