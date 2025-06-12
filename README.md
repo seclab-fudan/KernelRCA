@@ -14,7 +14,7 @@ Dependencies can be different between different OS versions.
 
 ### Install S2E and configure KernelRCA's environment
 
-1. Modify the S2EDIR in s2e/s2e_activate to your KernelRCA/s2e
+1. Modify the S2EDIR in s2e/s2e\_activate to your KernelRCA/s2e
 ```bash
 S2EDIR="/path/to/your/KernelRCA/s2e"
 ```
@@ -91,7 +91,7 @@ newgrp docker
 
 ## Run
 
-We take the bug "crash_b66d8de2cec1e3878a0524807b93d96bba182fba" as an example to show how to run KernelRCA. At the first time, this procedure may take a relatively long time (~1h, according to your machine and network) to automatically prepare other dependencies like docker image for kernel building. The analysis will be much faster next time.
+We take the bug "crash\_b66d8de2cec1e3878a0524807b93d96bba182fba" as an example to show how to run KernelRCA. At the first time, this procedure may take a relatively long time (~1h, according to your machine and network) to automatically prepare other dependencies like docker image for kernel building. The analysis will be much faster next time.
 
 ```bash
 cd path/to/your/KernelRCA
@@ -102,7 +102,7 @@ cd path/to/your/KernelRCA
 python3 run.py crash_b66d8de2cec1e3878a0524807b93d96bba182fba
 ```
 
-After the whole analysis finished, you should see the result in KernelRCA/s2e/projects/crash_b66d8de2cec1e3878a0524807b93d96bba182fba.
+After the whole analysis finished, you should see the result in KernelRCA/s2e/projects/crash\_b66d8de2cec1e3878a0524807b93d96bba182fba.
 The report.txt is the final root cause report.
 At the end of the report.txt, you can see the root cause chain.
 The instructions of the indices shown in the root cause chain can be found in the section "==== CallTraceAnalyzer ====".
@@ -132,17 +132,17 @@ The section "==== CallTraceAnalyzer ====" shows all the calling context and data
 ## Visualization
 After obtaining the report.txt, you can visualize it on a webpage.
 
-1. Obtain crash_xxx_report.json by running tools/visualizer.py
-2. Put the json in tools/causality_chain_ui/public
-3. Build and run tools/causality_chain_ui
-4. Access the visualization page through http://your.ip/report/crash_id
+1. Obtain crash\_xxx\_report.json by running tools/visualizer.py
+2. Put the json in tools/causality\_chain\_ui/public
+3. Build and run tools/causality\_chain\_ui
+4. Access the visualization page through http://your.ip/report/crash\_id
 
 We have already pre-prepared some analysis results, which you can review directly.
-Suppose that you deploy the website at 127.0.0.1, and you wish to review the crash_b66d8de2cec1e3878a0524807b93d96bba182fba.
+Suppose that you deploy the website at 127.0.0.1, and you wish to review the crash\_b66d8de2cec1e3878a0524807b93d96bba182fba.
 Just access http://127.0.0.1/report/b66d
 
 ## Dataset Format
-Take crash_b66d8de2cec1e3878a0524807b93d96bba182fba as an example:
+Take crash\_b66d8de2cec1e3878a0524807b93d96bba182fba as an example:
 ```plain
 - commit : The commit ID where the bug can be reproduced.
 - config : The kernel config on which the bug can be reproduced.
@@ -153,10 +153,10 @@ Take crash_b66d8de2cec1e3878a0524807b93d96bba182fba as an example:
 ```
 
 ## FAQs
-1. (Q) ERROR: [image_build] Make sure that the kernels in /boot are readable. This is required for guestfish. Please run the following command:
-sudo chmod ugo+r /boot/vmlinu*
+1. (Q) ERROR: [image\_build] Make sure that the kernels in /boot are readable. This is required for guestfish. Please run the following command:
+sudo chmod ugo+r /boot/vmlinu\*
 
-   (A) run "sudo chmod ugo+r /boot/vmlinu*"
+   (A) run "sudo chmod ugo+r /boot/vmlinu\*"
 
 2. (Q) s2e build failed.
 
