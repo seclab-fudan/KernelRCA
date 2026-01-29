@@ -1,6 +1,6 @@
 # KernelRCA
 
-This is the artifact of the paper "KernelRCA: KernelRCA: Facilitating Root Cause Analysis of Memory Corruptions in Linux Kernel with Contextual Causality Chain"
+This is the artifact of the paper "KernelRCA: Facilitating Root Cause Analysis of Memory Corruptions in Linux Kernel with Contextual Causality Chain"
 
 The dataset used in the paper is also included for the convenience of reproduction.
 
@@ -49,7 +49,16 @@ git reset --hard v3.25.0
 ./bootstrap && make -j32 && sudo make install
 ```
 
-5. Setup s2e-env Python environment
+5. Clone Linux kernel repository
+
+If the `/path/to/KernelRCA/s2e/source/s2e-linux-kernel/linux` in your cloned directory is empty, you need to clone the kernel source manually.
+```
+cd /path/to/KernelRCA/s2e/source/s2e-linux-kernel/
+rm -rf ./linux
+git clone git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
+```
+
+6. Setup s2e-env Python environment
 ```bash
 cd /path/to/your/KernelRCA
 cp -r s2e/source/s2e-env/ ./
@@ -63,23 +72,24 @@ pip install wheel
 pip install .
 pip install lief
 pip install angr
+pip install fuzzywuzzy
 pip uninstall pyelftools -y
 pip install pyelftools==0.29
 ```
 
-6. Build S2E
+7. Build S2E
 ```bash
 cd KernelRCA
 ln -s /path/to/your/KernelRCA/s2e/source/scripts/Makefile s2e/source/Makefile
 s2e build
 ```
 
-7. Configure KernelRCA's environment in KernelRCA/rca/SetupConfig.py
+8. Configure KernelRCA's environment in KernelRCA/rca/SetupConfig.py
 ```python
 S2E_HOME = '/path/to/your/KernelRCA/s2e'
 ```
 
-8. Update user group
+9. Update user group
 ```bash
 sudo usermod -a -G kvm $(whoami)
 sudo usermod -a -G docker $(whoami)
@@ -160,3 +170,10 @@ sudo chmod ugo+r /boot/vmlinu\*
 
     (A) Install the missing dependencies (according to your environment). Sometimes, just trying again can solve the problem. Sometimes, you need to delete the related s2e/build/<component_name> and s2e/build/stamps/<component_name>-<configure/make/install> and retry.
 
+3. (Q) Hardware Requirements
+
+    (A) The minimal system requirements are 16 CPU cores with KVM support, 32 GB of RAM, and 200 GB of disk storage. If all cases are to be evaluated, up to 700 GB of disk storage may be required. Some cases, such as 4b1e841004ca235843fe3dd609a5dda6d3fb9a3d, may generate hundreds of gigabytes of tracing data and can take a long time to analyze.
+
+4. (Q) Software Dependencies
+
+    (A) This artifact cannot be executed in a Docker environment. We recommend starting from a clean system installation using the image available at https://releases.ubuntu.com/18.04/ubuntu-18.04.6-desktop-amd64.iso
